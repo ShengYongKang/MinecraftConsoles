@@ -1,4 +1,4 @@
-class_name PlayerController
+﻿class_name PlayerController
 extends CharacterBody3D
 
 @export var world_path: NodePath
@@ -12,8 +12,8 @@ extends CharacterBody3D
 @onready var camera: Camera3D = $Head/Camera3D
 
 var world: VoxelWorld
-var selected_block := BlockDefs.COBBLE
-var pitch := 0.0
+var selected_block: int = BlockDefs.COBBLE
+var pitch: float = 0.0
 
 func _ready() -> void:
 	_ensure_input_bindings()
@@ -40,10 +40,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_try_place_block()
 
 func _physics_process(delta: float) -> void:
-	var move_input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var forward := -global_transform.basis.z
-	var right := global_transform.basis.x
-	var wish_dir := (right * move_input.x + forward * move_input.y)
+	var move_input: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var forward: Vector3 = -global_transform.basis.z
+	var right: Vector3 = global_transform.basis.x
+	var wish_dir: Vector3 = right * move_input.x + forward * move_input.y
 	wish_dir.y = 0
 	wish_dir = wish_dir.normalized()
 
@@ -60,7 +60,7 @@ func _physics_process(delta: float) -> void:
 func _try_break_block() -> void:
 	if world == null:
 		return
-	var hit := _raycast_block()
+	var hit: Dictionary = _raycast_block()
 	if hit.is_empty():
 		return
 
@@ -71,7 +71,7 @@ func _try_break_block() -> void:
 func _try_place_block() -> void:
 	if world == null:
 		return
-	var hit := _raycast_block()
+	var hit: Dictionary = _raycast_block()
 	if hit.is_empty():
 		return
 
@@ -100,8 +100,8 @@ func _player_overlaps_block(cell: Vector3i) -> bool:
 	)
 
 func _raycast_block() -> Dictionary:
-	var from := camera.global_position
-	var to := from + (-camera.global_transform.basis.z * reach_distance)
+	var from: Vector3 = camera.global_position
+	var to: Vector3 = from + (-camera.global_transform.basis.z * reach_distance)
 	var params := PhysicsRayQueryParameters3D.create(from, to)
 	params.collide_with_areas = false
 	return get_world_3d().direct_space_state.intersect_ray(params)
@@ -144,3 +144,24 @@ func _has_mouse_event(action: StringName, button: MouseButton) -> bool:
 		if event is InputEventMouseButton and event.button_index == button:
 			return true
 	return false
+
+func get_persisted_state() -> Dictionary:
+	var saved_position: Vector3 = global_position if is_inside_tree() else position
+	return {
+		"position": saved_position,
+		"yaw": rotation.y,
+		"pitch": pitch,
+		"selected_block": selected_block,
+	}
+
+func apply_persisted_state(state: Dictionary) -> void:
+	var saved_position: Variant = state.get("position", null)
+	if saved_position is Vector3:
+		global_position = saved_position
+
+	rotation.y = float(state.get("yaw", rotation.y))
+	pitch = clamp(float(state.get("pitch", pitch)), -1.55, 1.55)
+	head.rotation.x = pitch
+	selected_block = int(state.get("selected_block", selected_block))
+	velocity = Vector3.ZERO
+
