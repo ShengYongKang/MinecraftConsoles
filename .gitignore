@@ -433,3 +433,13 @@ build/*
 
 # Local saves
 Minecraft.Client/Saves/
+# Codex local state
+.codex/
+
+# Local launcher helper
+Open-OurEra-Godot.cmd
+
+# Godot 4 generated cache and local runtime data
+OurEra/.godot/
+OurEra/save_data/
+OurEra/godot-check.log
