@@ -1,0 +1,47 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/game_ui_root.gd" id="1_root"]
+[ext_resource type="Script" path="res://scripts/ui/game_ui_bridge.gd" id="2_bridge"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud/hud_root.tscn" id="3_hud"]
+[ext_resource type="PackedScene" path="res://scenes/ui/inventory/inventory_ui.tscn" id="4_inventory"]
+[ext_resource type="PackedScene" path="res://scenes/ui/menus/pause_menu_ui.tscn" id="5_menu"]
+
+[node name="GameUI" type="CanvasLayer"]
+script = ExtResource("1_root")
+
+[node name="Bridge" type="Node" parent="."]
+script = ExtResource("2_bridge")
+player_path = NodePath("../Entities/Player")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="HUD" parent="Root" instance=ExtResource("3_hud")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="InventoryUI" parent="Root" instance=ExtResource("4_inventory")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PauseMenuUI" parent="Root" instance=ExtResource("5_menu")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2

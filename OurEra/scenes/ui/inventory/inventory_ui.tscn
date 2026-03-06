@@ -1,0 +1,91 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/inventory/inventory_ui.gd" id="1_inventory"]
+
+[node name="InventoryUI" type="Control"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("1_inventory")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.03, 0.04, 0.06, 0.72)
+
+[node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -390.0
+offset_top = -260.0
+offset_right = 390.0
+offset_bottom = 260.0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 24
+
+[node name="Layout" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="HeaderRow" type="HBoxContainer" parent="Panel/Margin/Layout"]
+layout_mode = 2
+
+[node name="TitleLabel" type="Label" parent="Panel/Margin/Layout/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Prototype Backpack"
+
+[node name="CloseButton" type="Button" parent="Panel/Margin/Layout/HeaderRow"]
+layout_mode = 2
+text = "Resume"
+
+[node name="SubtitleLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="SelectionLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+
+[node name="QuickLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+text = "Quick Access"
+
+[node name="QuickSlots" type="HBoxContainer" parent="Panel/Margin/Layout"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BackpackLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+text = "Backpack Shell"
+
+[node name="InventoryGrid" type="GridContainer" parent="Panel/Margin/Layout"]
+layout_mode = 2
+columns = 9
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="HintLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+autowrap_mode = 3

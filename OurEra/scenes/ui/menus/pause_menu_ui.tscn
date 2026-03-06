@@ -1,0 +1,74 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/menus/pause_menu_ui.gd" id="1_menu"]
+
+[node name="PauseMenuUI" type="Control"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("1_menu")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.03, 0.04, 0.06, 0.68)
+
+[node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -210.0
+offset_top = -160.0
+offset_right = 210.0
+offset_bottom = 160.0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 26
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 26
+
+[node name="Layout" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="TitleLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+horizontal_alignment = 1
+text = "Session Menu"
+
+[node name="BodyLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+autowrap_mode = 3
+horizontal_alignment = 1
+text = "Front-end shell is active. Resume gameplay or jump into the prototype backpack."
+
+[node name="ResumeButton" type="Button" parent="Panel/Margin/Layout"]
+layout_mode = 2
+text = "Resume"
+
+[node name="InventoryButton" type="Button" parent="Panel/Margin/Layout"]
+layout_mode = 2
+text = "Open Backpack"
+
+[node name="HintLabel" type="Label" parent="Panel/Margin/Layout"]
+layout_mode = 2
+autowrap_mode = 3
+horizontal_alignment = 1

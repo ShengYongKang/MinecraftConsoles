@@ -1,0 +1,73 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/hud/hud_root.gd" id="1_hud"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud/crosshair_ui.tscn" id="2_crosshair"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud/hotbar_ui.tscn" id="3_hotbar"]
+
+[node name="HUDRoot" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+script = ExtResource("1_hud")
+
+[node name="Crosshair" parent="." instance=ExtResource("2_crosshair")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BottomBar" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -154.0
+offset_right = 360.0
+offset_bottom = -18.0
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="SelectedLabel" type="Label" parent="BottomBar"]
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="Hotbar" parent="BottomBar" instance=ExtResource("3_hotbar")]
+layout_mode = 2
+
+[node name="WorldHintLabel" type="Label" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 32.0
+offset_top = -74.0
+offset_right = -32.0
+offset_bottom = -42.0
+horizontal_alignment = 1
+
+[node name="HintLabel" type="Label" parent="."]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 32.0
+offset_top = -42.0
+offset_right = -32.0
+offset_bottom = -10.0
+horizontal_alignment = 1
+
+[node name="FeedbackLabel" type="Label" parent="."]
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -220.0
+offset_top = 42.0
+offset_right = 220.0
+offset_bottom = 82.0
+horizontal_alignment = 1
