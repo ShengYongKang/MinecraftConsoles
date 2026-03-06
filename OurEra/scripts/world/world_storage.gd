@@ -89,12 +89,18 @@ func load_world_meta(default_seed: int) -> Dictionary:
 	if player_variant is Dictionary:
 		player_state = player_variant
 
+	var entity_states: Array = []
+	var entity_variant: Variant = payload.get("entities", [])
+	if entity_variant is Array:
+		entity_states = entity_variant.duplicate(true)
+
 	return {
 		"seed": int(payload.get("seed", default_seed)),
 		"player": player_state,
+		"entities": entity_states,
 	}
 
-func save_world_meta(world_seed: int, player_state: Dictionary) -> bool:
+func save_world_meta(world_seed: int, player_state: Dictionary, entity_states: Array = []) -> bool:
 	ensure_save_directories()
 	var file: FileAccess = FileAccess.open(get_world_meta_path(), FileAccess.WRITE)
 	if file == null:
@@ -105,6 +111,7 @@ func save_world_meta(world_seed: int, player_state: Dictionary) -> bool:
 		"version": WorldConstants.WORLD_META_FORMAT_VERSION,
 		"seed": world_seed,
 		"player": player_state,
+		"entities": entity_states,
 	}
 	file.store_var(payload)
 	file.flush()

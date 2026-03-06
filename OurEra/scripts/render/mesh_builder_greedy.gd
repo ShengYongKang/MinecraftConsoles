@@ -12,7 +12,7 @@ const FACE_NORMALS: Array[Vector3] = [
 
 const POSITIVE_FACE_FOR_AXIS: Array[int] = [0, 2, 4]
 const NEGATIVE_FACE_FOR_AXIS: Array[int] = [1, 3, 5]
-const QUAD_TRIANGLE_INDICES := PackedInt32Array([0, 1, 2, 0, 2, 3])
+const QUAD_TRIANGLE_INDICES: Array[int] = [0, 1, 2, 0, 2, 3]
 const FACE_SIGNATURE_MULTIPLIER := 8
 
 func build(context: Dictionary) -> Dictionary:

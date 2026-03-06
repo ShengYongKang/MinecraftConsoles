@@ -1,30 +1,46 @@
-﻿class_name PlayerController
-extends CharacterBody3D
+class_name PlayerController
+extends EntityBase
 
-@export var world_path: NodePath
+const PlayerStateScript = preload("res://scripts/entities/player/player_state.gd")
+
 @export var move_speed := 6.0
 @export var jump_velocity := 5.2
 @export var gravity := 18.0
 @export var mouse_sensitivity := 0.0022
 @export var reach_distance := 7.0
+@export var capture_mouse_on_ready := true
+@export var local_input_authority := true
 
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
 
-var world: VoxelWorld
 var selected_block: int = BlockDefs.COBBLE
-var pitch: float = 0.0
+var pitch := 0.0
+
+func _init() -> void:
+	entity_category = "player"
+	entity_archetype = "player"
+	entity_id = "player"
 
 func _ready() -> void:
 	_ensure_input_bindings()
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	world = get_node_or_null(world_path)
+	if capture_mouse_on_ready and local_input_authority:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_apply_head_pitch()
+	super._ready()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not local_input_authority:
+		return
+
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		rotation.y -= event.relative.x * mouse_sensitivity
-		pitch = clamp(pitch - event.relative.y * mouse_sensitivity, -1.55, 1.55)
-		head.rotation.x = pitch
+		pitch = clamp(
+			pitch - event.relative.y * mouse_sensitivity,
+			-PlayerStateScript.MAX_LOOK_PITCH,
+			PlayerStateScript.MAX_LOOK_PITCH
+		)
+		_apply_head_pitch()
 		return
 
 	if event.is_action_pressed("ui_cancel"):
@@ -39,51 +55,65 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("place_block"):
 		_try_place_block()
 
-func _physics_process(delta: float) -> void:
-	var move_input: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var forward: Vector3 = -global_transform.basis.z
-	var right: Vector3 = global_transform.basis.x
-	var wish_dir: Vector3 = right * move_input.x + forward * move_input.y
-	wish_dir.y = 0
-	wish_dir = wish_dir.normalized()
+func get_target_origin() -> Vector3:
+	if camera == null:
+		return global_position
+	return camera.global_position
 
-	velocity.x = wish_dir.x * move_speed
-	velocity.z = wish_dir.z * move_speed
+func get_combat_anchor() -> Node3D:
+	if head == null:
+		return self
+	return head
 
-	if not is_on_floor():
-		velocity.y -= gravity * delta
-	elif Input.is_action_just_pressed("jump"):
-		velocity.y = jump_velocity
+func build_ai_context() -> Dictionary:
+	var look_direction := Vector3.ZERO
+	if camera != null:
+		look_direction = -camera.global_transform.basis.z
+	return {
+		"view_origin": get_target_origin(),
+		"look_direction": look_direction,
+		"selected_block": selected_block,
+	}
 
-	move_and_slide()
+func _entity_physics(delta: float) -> void:
+	var move_input := Vector2.ZERO
+	var wants_jump := false
+	if local_input_authority:
+		move_input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+		wants_jump = Input.is_action_just_pressed("jump")
+
+	var wish_dir := compute_planar_move_direction(move_input)
+	step_character_movement(delta, wish_dir, move_speed, jump_velocity, wants_jump, gravity)
 
 func _try_break_block() -> void:
-	if world == null:
+	if get_world_root() == null:
 		return
-	var hit: Dictionary = _raycast_block()
+
+	var hit := _raycast_block()
 	if hit.is_empty():
 		return
 
 	var p: Vector3 = hit["position"] - hit["normal"] * 0.01
 	var target := Vector3i(floori(p.x), floori(p.y), floori(p.z))
-	world.set_block_global(target, BlockDefs.AIR)
+	set_world_block(target, BlockDefs.AIR)
 
 func _try_place_block() -> void:
-	if world == null:
+	if get_world_root() == null:
 		return
-	var hit: Dictionary = _raycast_block()
+
+	var hit := _raycast_block()
 	if hit.is_empty():
 		return
 
 	var p: Vector3 = hit["position"] + hit["normal"] * 0.01
 	var target := Vector3i(floori(p.x), floori(p.y), floori(p.z))
 
-	if world.get_block_global(target) != BlockDefs.AIR:
+	if get_world_block(target) != BlockDefs.AIR:
 		return
 	if _player_overlaps_block(target):
 		return
 
-	world.set_block_global(target, selected_block)
+	set_world_block(target, selected_block)
 
 func _player_overlaps_block(cell: Vector3i) -> bool:
 	var cell_min := Vector3(cell.x, cell.y, cell.z)
@@ -100,11 +130,18 @@ func _player_overlaps_block(cell: Vector3i) -> bool:
 	)
 
 func _raycast_block() -> Dictionary:
+	if camera == null:
+		return {}
+
 	var from: Vector3 = camera.global_position
 	var to: Vector3 = from + (-camera.global_transform.basis.z * reach_distance)
 	var params := PhysicsRayQueryParameters3D.create(from, to)
 	params.collide_with_areas = false
 	return get_world_3d().direct_space_state.intersect_ray(params)
+
+func _apply_head_pitch() -> void:
+	if head != null:
+		head.rotation.x = pitch
 
 func _ensure_input_bindings() -> void:
 	_add_key_if_missing("move_forward", KEY_W)
@@ -145,23 +182,14 @@ func _has_mouse_event(action: StringName, button: MouseButton) -> bool:
 			return true
 	return false
 
-func get_persisted_state() -> Dictionary:
-	var saved_position: Vector3 = global_position if is_inside_tree() else position
-	return {
-		"position": saved_position,
-		"yaw": rotation.y,
-		"pitch": pitch,
-		"selected_block": selected_block,
-	}
+func _get_custom_persisted_state() -> Dictionary:
+	var state := PlayerStateScript.new()
+	state.pitch = pitch
+	state.selected_block = selected_block
+	return state.to_dictionary()
 
-func apply_persisted_state(state: Dictionary) -> void:
-	var saved_position: Variant = state.get("position", null)
-	if saved_position is Vector3:
-		global_position = saved_position
-
-	rotation.y = float(state.get("yaw", rotation.y))
-	pitch = clamp(float(state.get("pitch", pitch)), -1.55, 1.55)
-	head.rotation.x = pitch
-	selected_block = int(state.get("selected_block", selected_block))
-	velocity = Vector3.ZERO
-
+func _apply_custom_persisted_state(state: Dictionary) -> void:
+	var restored := PlayerStateScript.create_from_dictionary(state)
+	pitch = restored.pitch
+	selected_block = restored.selected_block
+	_apply_head_pitch()
