@@ -2,6 +2,7 @@ class_name WorldGenerator
 extends RefCounted
 
 const WorldConstants = preload("res://scripts/world/world_constants.gd")
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
 
 var seed: int = 114514
 var thread_count: int = 2
@@ -134,15 +135,7 @@ func _generate_chunk_blocks_with_noise(
 			var height: int = _sample_height(wx, wz, height_noise, detail_noise)
 
 			for y in range(height + 1):
-				var id: int = BlockDefs.STONE
-				if y == height:
-					id = BlockDefs.GRASS
-				elif y >= height - 3:
-					id = BlockDefs.DIRT
-
-				if y < WorldConstants.SEA_LEVEL - 6 and y % 9 == 0:
-					id = BlockDefs.COBBLE
-
+				var id: int = ContentDBScript.get_generated_block_id(height, y, WorldConstants.SEA_LEVEL)
 				data[WorldConstants.to_index(x, y, z)] = id
 
 	return data

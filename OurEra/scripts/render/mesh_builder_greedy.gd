@@ -1,6 +1,8 @@
 class_name MeshBuilderGreedy
 extends RefCounted
 
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
+
 const FACE_NORMALS: Array[Vector3] = [
 	Vector3(1, 0, 0),
 	Vector3(-1, 0, 0),
@@ -80,10 +82,12 @@ func _build_axis_quads(
 
 				var a := int(block_sampler.call(cursor))
 				var b := int(block_sampler.call(cursor + step))
+				var a_solid := ContentDBScript.is_solid(a)
+				var b_solid := ContentDBScript.is_solid(b)
 
-				if BlockDefs.is_solid(a) == BlockDefs.is_solid(b):
+				if a_solid == b_solid:
 					mask[mask_index] = 0
-				elif BlockDefs.is_solid(a):
+				elif a_solid:
 					mask[mask_index] = _encode_face_signature(a, POSITIVE_FACE_FOR_AXIS[axis])
 				else:
 					mask[mask_index] = _encode_face_signature(b, NEGATIVE_FACE_FOR_AXIS[axis])
@@ -149,7 +153,7 @@ func _add_quad(
 	light_sampler: Callable,
 	stats: Dictionary
 ) -> void:
-	var tile := BlockDefs.tile_for_face(block_id, face_index)
+	var tile := ContentDBScript.tile_for_face(block_id, face_index)
 	var tile_uv := Vector2(tile.x, tile.y)
 	var repeat_u := du.length()
 	var repeat_v := dv.length()

@@ -1,6 +1,8 @@
 class_name MaterialRegistry
 extends RefCounted
 
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
+
 const SOLID_BLOCKS_MATERIAL_ID: StringName = &"solid_blocks"
 const DEFAULT_ATLAS_TEXTURE_PATH := "res://assets/textures/terrain.png"
 const DEFAULT_SOLID_BLOCK_SHADER_PATH := "res://shaders/voxel/voxel_blocks.gdshader"
@@ -8,7 +10,7 @@ const LEGACY_SOLID_BLOCK_SHADER_PATH := "res://shaders/voxel_blocks.gdshader"
 
 var atlas_texture_path := DEFAULT_ATLAS_TEXTURE_PATH
 var solid_block_shader_path := DEFAULT_SOLID_BLOCK_SHADER_PATH
-var atlas_size := BlockDefs.ATLAS_SIZE
+var atlas_size := ContentDBScript.ATLAS_SIZE
 var use_vertex_lighting := false
 
 var _materials: Dictionary = {}

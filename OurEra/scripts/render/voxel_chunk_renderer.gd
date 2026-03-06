@@ -2,6 +2,7 @@ class_name VoxelChunkRenderer
 extends RefCounted
 
 const WorldConstants = preload("res://scripts/world/world_constants.gd")
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
 const MeshBuilderGreedyScript = preload("res://scripts/render/mesh_builder_greedy.gd")
 const CollisionBuilderScript = preload("res://scripts/render/collision_builder.gd")
 
@@ -61,9 +62,9 @@ func get_last_build_stats() -> Dictionary:
 
 func _sample_block_for_meshing(local_pos: Vector3i) -> int:
 	if local_pos.y < 0 or local_pos.y >= WorldConstants.WORLD_HEIGHT:
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 	if blocks.size() != WorldConstants.CHUNK_VOLUME:
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 
 	if (
 		local_pos.x >= 0 and local_pos.x < WorldConstants.CHUNK_WIDTH and
@@ -72,7 +73,7 @@ func _sample_block_for_meshing(local_pos: Vector3i) -> int:
 		return blocks[WorldConstants.to_index(local_pos.x, local_pos.y, local_pos.z)]
 
 	if world == null or not world.has_method("get_block_global"):
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 	return world.get_block_global(WorldConstants.chunk_origin(chunk_coord) + local_pos)
 
 func _get_render_config() -> Dictionary:

@@ -2,6 +2,7 @@ class_name WorldRoot
 extends Node3D
 
 const WorldConstants = preload("res://scripts/world/world_constants.gd")
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
 const WorldEventsScript = preload("res://scripts/world/world_events.gd")
 const WorldStorageScript = preload("res://scripts/world/world_storage.gd")
 const WorldGeneratorScript = preload("res://scripts/world/world_generator.gd")
@@ -104,7 +105,7 @@ func _process(delta: float) -> void:
 
 func get_block_global(pos: Vector3i) -> int:
 	if _streaming == null:
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 	return _streaming.get_block_global(pos)
 
 func set_block_global(pos: Vector3i, block_id: int) -> void:
@@ -244,7 +245,7 @@ func _setup_material() -> void:
 	_material_registry.configure({
 		"atlas_texture_path": terrain_atlas_texture_path,
 		"solid_block_shader_path": solid_block_shader_path,
-		"atlas_size": BlockDefs.ATLAS_SIZE,
+		"atlas_size": ContentDBScript.ATLAS_SIZE,
 	})
 
 func _tick_autosave(delta: float) -> void:

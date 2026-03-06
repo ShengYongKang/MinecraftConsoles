@@ -1,6 +1,8 @@
 class_name EntityBase
 extends CharacterBody3D
 
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
+
 signal entity_registered(entity: EntityBase)
 signal entity_unregistered(entity: EntityBase)
 signal despawn_requested(entity: EntityBase, reason: String)
@@ -128,7 +130,7 @@ func step_character_movement(
 
 func get_world_block(pos: Vector3i) -> int:
 	if world == null or not world.has_method("get_block_global"):
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 	return world.get_block_global(pos)
 
 func set_world_block(pos: Vector3i, block_id: int) -> void:

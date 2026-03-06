@@ -2,6 +2,7 @@ class_name ChunkStreaming
 extends RefCounted
 
 const WorldConstants = preload("res://scripts/world/world_constants.gd")
+const ContentDBScript = preload("res://scripts/content/content_db.gd")
 const VoxelChunkScript = preload("res://scripts/voxel_chunk.gd")
 
 var world: Node3D
@@ -102,11 +103,11 @@ func flush_dirty_chunks() -> void:
 
 func get_block_global(pos: Vector3i) -> int:
 	if pos.y < 0 or pos.y >= WorldConstants.WORLD_HEIGHT:
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 
 	var chunk_coord: Vector2i = WorldConstants.world_to_chunk(pos)
 	if not _chunk_blocks.has(chunk_coord):
-		return BlockDefs.AIR
+		return ContentDBScript.AIR
 
 	var local: Vector3i = WorldConstants.world_to_local(pos)
 	var data: PackedInt32Array = _chunk_blocks[chunk_coord]

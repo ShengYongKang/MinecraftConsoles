@@ -1,6 +1,7 @@
 class_name PlayerController
 extends EntityBase
 
+const PlayerContentDBScript = preload("res://scripts/content/content_db.gd")
 const PlayerStateScript = preload("res://scripts/entities/player/player_state.gd")
 
 @export var move_speed := 6.0
@@ -14,7 +15,7 @@ const PlayerStateScript = preload("res://scripts/entities/player/player_state.gd
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
 
-var selected_block: int = BlockDefs.COBBLE
+var selected_block: int = PlayerContentDBScript.get_default_selected_block_id()
 var pitch := 0.0
 
 func _init() -> void:
@@ -95,10 +96,12 @@ func _try_break_block() -> void:
 
 	var p: Vector3 = hit["position"] - hit["normal"] * 0.01
 	var target := Vector3i(floori(p.x), floori(p.y), floori(p.z))
-	set_world_block(target, BlockDefs.AIR)
+	set_world_block(target, PlayerContentDBScript.AIR)
 
 func _try_place_block() -> void:
 	if get_world_root() == null:
+		return
+	if not PlayerContentDBScript.can_place_block(selected_block):
 		return
 
 	var hit := _raycast_block()
@@ -107,8 +110,9 @@ func _try_place_block() -> void:
 
 	var p: Vector3 = hit["position"] + hit["normal"] * 0.01
 	var target := Vector3i(floori(p.x), floori(p.y), floori(p.z))
+	var current_block := get_world_block(target)
 
-	if get_world_block(target) != BlockDefs.AIR:
+	if not PlayerContentDBScript.can_replace_block(current_block):
 		return
 	if _player_overlaps_block(target):
 		return
@@ -191,5 +195,5 @@ func _get_custom_persisted_state() -> Dictionary:
 func _apply_custom_persisted_state(state: Dictionary) -> void:
 	var restored := PlayerStateScript.create_from_dictionary(state)
 	pitch = restored.pitch
-	selected_block = restored.selected_block
+	selected_block = PlayerContentDBScript.sanitize_placeable_block_id(restored.selected_block)
 	_apply_head_pitch()
