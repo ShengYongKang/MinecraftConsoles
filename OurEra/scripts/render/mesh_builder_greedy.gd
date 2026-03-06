@@ -1,8 +1,6 @@
 class_name MeshBuilderGreedy
 extends RefCounted
 
-const ContentDBScript = preload("res://scripts/content/content_db.gd")
-
 const FACE_NORMALS: Array[Vector3] = [
 	Vector3(1, 0, 0),
 	Vector3(-1, 0, 0),
@@ -23,6 +21,7 @@ func build(context: Dictionary) -> Dictionary:
 		return {
 			"mesh": null,
 			"stats": _empty_stats(),
+			"collision_faces": PackedVector3Array(),
 		}
 
 	var st := SurfaceTool.new()
@@ -36,19 +35,33 @@ func build(context: Dictionary) -> Dictionary:
 	var dims: Vector3i = context.get("dimensions", Vector3i.ONE)
 	var chunk_origin: Vector3i = context.get("chunk_origin", Vector3i.ZERO)
 	var light_sampler: Callable = context.get("light_sampler", Callable())
+	var collect_collision_faces := bool(context.get("collect_collision_faces", false))
+	var collision_faces := PackedVector3Array()
 
 	for axis in range(3):
-		_build_axis_quads(st, chunk_origin, dims, axis, block_sampler, light_sampler, stats)
+		_build_axis_quads(
+			st,
+			chunk_origin,
+			dims,
+			axis,
+			block_sampler,
+			light_sampler,
+			collect_collision_faces,
+			collision_faces,
+			stats
+		)
 
 	if int(stats["quad_count"]) == 0:
 		return {
 			"mesh": null,
 			"stats": stats,
+			"collision_faces": collision_faces,
 		}
 
 	return {
 		"mesh": st.commit(),
 		"stats": stats,
+		"collision_faces": collision_faces,
 	}
 
 func _build_axis_quads(
@@ -58,6 +71,8 @@ func _build_axis_quads(
 	axis: int,
 	block_sampler: Callable,
 	light_sampler: Callable,
+	collect_collision_faces: bool,
+	collision_faces: PackedVector3Array,
 	stats: Dictionary
 ) -> void:
 	var u := (axis + 1) % 3
@@ -82,12 +97,10 @@ func _build_axis_quads(
 
 				var a := int(block_sampler.call(cursor))
 				var b := int(block_sampler.call(cursor + step))
-				var a_solid := ContentDBScript.is_solid(a)
-				var b_solid := ContentDBScript.is_solid(b)
 
-				if a_solid == b_solid:
+				if BlockDefs.is_solid(a) == BlockDefs.is_solid(b):
 					mask[mask_index] = 0
-				elif a_solid:
+				elif BlockDefs.is_solid(a):
 					mask[mask_index] = _encode_face_signature(a, POSITIVE_FACE_FOR_AXIS[axis])
 				else:
 					mask[mask_index] = _encode_face_signature(b, NEGATIVE_FACE_FOR_AXIS[axis])
@@ -133,6 +146,8 @@ func _build_axis_quads(
 					_decode_block_id(signature),
 					_decode_face_index(signature),
 					light_sampler,
+					collect_collision_faces,
+					collision_faces,
 					stats
 				)
 
@@ -151,9 +166,11 @@ func _add_quad(
 	block_id: int,
 	face_index: int,
 	light_sampler: Callable,
+	collect_collision_faces: bool,
+	collision_faces: PackedVector3Array,
 	stats: Dictionary
 ) -> void:
-	var tile := ContentDBScript.tile_for_face(block_id, face_index)
+	var tile := BlockDefs.tile_for_face(block_id, face_index)
 	var tile_uv := Vector2(tile.x, tile.y)
 	var repeat_u := du.length()
 	var repeat_v := dv.length()
@@ -195,6 +212,8 @@ func _add_quad(
 		st.set_uv(repeat_uvs[vertex_index])
 		st.set_uv2(tile_uv)
 		st.add_vertex(vertices[vertex_index])
+		if collect_collision_faces:
+			collision_faces.append(vertices[vertex_index])
 
 	stats["quad_count"] = int(stats["quad_count"]) + 1
 	stats["triangle_count"] = int(stats["triangle_count"]) + 2

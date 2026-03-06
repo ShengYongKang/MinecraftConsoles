@@ -16,6 +16,8 @@ const CHUNK_VOLUME := WorldConstants.CHUNK_VOLUME
 const SAVE_FORMAT_VERSION := WorldConstants.SAVE_FORMAT_VERSION
 const WORLD_META_FORMAT_VERSION := WorldConstants.WORLD_META_FORMAT_VERSION
 const PRIMARY_PLAYER_ENTITY_ID := "player"
+const PLAYER_SPAWN_CELL_OFFSET := 0.5
+const PLAYER_SPAWN_FLOOR_OFFSET := 0.05
 
 signal world_meta_loaded(seed: int, player_state: Dictionary)
 signal player_state_applied(state: Dictionary)
@@ -42,6 +44,10 @@ signal world_saved()
 @export_range(0, 4096, 1) var max_cached_clean_chunks := 256
 @export_range(0.0, 300.0, 1.0) var autosave_interval_seconds := 30.0
 @export var collect_chunk_render_stats := false
+@export_range(1, 8, 1) var max_chunk_collision_updates_per_frame := 1
+@export_range(0, 8, 1) var startup_mesh_warmup_frames := 1
+@export_range(0, 8, 1) var startup_mesh_updates_per_frame := 0
+@export_range(0, 8, 1) var startup_collision_updates_per_frame := 0
 
 var seed: int = 114514
 
@@ -71,7 +77,8 @@ func _ready() -> void:
 	_generator.thread_count = maxi(1, generator_thread_count)
 	_generator.start_workers()
 	_resolve_entity_system()
-	_resolve_player()
+	var player := _resolve_player()
+	_set_player_simulation_enabled(player, false)
 
 func _exit_tree() -> void:
 	save_now()
@@ -79,27 +86,22 @@ func _exit_tree() -> void:
 		_generator.stop_workers()
 
 func _process(delta: float) -> void:
-	if _resolve_player() == null:
+	var player := _resolve_player()
+	if player == null:
 		return
 
 	_sync_streaming_settings()
 
 	if not _startup_streaming_initialized:
-		_apply_loaded_player_state_if_needed()
+		_prepare_player_spawn(player)
+		_prime_startup_streaming(player)
+		_finalize_player_spawn(player)
 		_apply_loaded_entity_states_if_needed()
-		force_streaming_update()
 		_startup_streaming_initialized = true
 	else:
 		_apply_loaded_entity_states_if_needed()
 
-	var player := _player
-	var new_center: Vector2i = WorldConstants.world_to_chunk(
-		Vector3i(floori(player.global_position.x), 0, floori(player.global_position.z))
-	)
-	if new_center != _center_chunk:
-		_center_chunk = new_center
-		_streaming.on_center_chunk_changed(_center_chunk)
-
+	_update_center_chunk(player)
 	_streaming.process_frame(_center_chunk)
 	_tick_autosave(delta)
 
@@ -132,7 +134,9 @@ func get_chunk_render_config() -> Dictionary:
 	config["fluid_surface_builder"] = Callable()
 	config["render_budget"] = {
 		"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
+		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
 		"collision_radius_chunks": collision_radius_chunks,
+		"startup_mesh_warmup_frames": startup_mesh_warmup_frames,
 	}
 	return config
 
@@ -235,6 +239,10 @@ func _sync_streaming_settings() -> void:
 		"collision_radius_chunks": collision_radius_chunks,
 		"max_chunk_generations_per_frame": max_chunk_generations_per_frame,
 		"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
+		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
+		"startup_mesh_warmup_frames": startup_mesh_warmup_frames,
+		"startup_mesh_updates_per_frame": startup_mesh_updates_per_frame,
+		"startup_collision_updates_per_frame": startup_collision_updates_per_frame,
 		"max_active_generation_jobs": max_active_generation_jobs,
 		"max_completed_chunk_integrations_per_frame": max_completed_chunk_integrations_per_frame,
 		"max_cached_clean_chunks": max_cached_clean_chunks,
@@ -279,6 +287,75 @@ func _load_world_meta() -> void:
 
 func _save_world_meta() -> void:
 	_storage.save_world_meta(seed, _collect_player_state(), _collect_entity_states())
+
+func _prepare_player_spawn(player: Node3D) -> void:
+	_set_player_simulation_enabled(player, false)
+	_apply_loaded_player_state_if_needed()
+	_prime_player_support_chunk(player.global_position)
+	_stabilize_player_spawn(player)
+
+func _prime_startup_streaming(player: Node3D) -> void:
+	if _streaming == null:
+		return
+	_sync_streaming_settings()
+	_streaming.begin_startup_warmup()
+	_center_chunk = WorldConstants.world_to_chunk(
+		Vector3i(floori(player.global_position.x), 0, floori(player.global_position.z))
+	)
+	_streaming.on_center_chunk_changed(_center_chunk)
+
+func _finalize_player_spawn(player: Node3D) -> void:
+	if player is CharacterBody3D:
+		var body: CharacterBody3D = player
+		body.velocity = Vector3.ZERO
+		body.apply_floor_snap()
+
+	_set_player_simulation_enabled(player, true)
+
+func _prime_player_support_chunk(player_position: Vector3) -> void:
+	if _streaming == null:
+		return
+
+	var coord := WorldConstants.world_to_chunk(
+		Vector3i(floori(player_position.x), 0, floori(player_position.z))
+	)
+	_streaming.ensure_chunk_immediate(coord, true)
+
+func _stabilize_player_spawn(player: Node3D) -> void:
+	var base_position: Vector3 = player.global_position
+	var column_x: int = floori(base_position.x)
+	var column_z: int = floori(base_position.z)
+	var safe_y: float = _find_highest_standable_y(column_x, column_z)
+	player.global_position = Vector3(
+		float(column_x) + PLAYER_SPAWN_CELL_OFFSET,
+		safe_y,
+		float(column_z) + PLAYER_SPAWN_CELL_OFFSET
+	)
+
+	if player is CharacterBody3D:
+		(player as CharacterBody3D).velocity = Vector3.ZERO
+
+func _find_highest_standable_y(column_x: int, column_z: int) -> float:
+	for y in range(WorldConstants.WORLD_HEIGHT - 2, 1, -1):
+		var support_block: int = get_block_global(Vector3i(column_x, y - 1, column_z))
+		if not ContentDBScript.is_solid(support_block):
+			continue
+
+		var feet_block: int = get_block_global(Vector3i(column_x, y, column_z))
+		var head_block: int = get_block_global(Vector3i(column_x, y + 1, column_z))
+		if not ContentDBScript.can_replace_block(feet_block):
+			continue
+		if not ContentDBScript.can_replace_block(head_block):
+			continue
+		return float(y) + PLAYER_SPAWN_FLOOR_OFFSET
+
+	return 1.0 + PLAYER_SPAWN_FLOOR_OFFSET
+
+func _set_player_simulation_enabled(player: Node3D, enabled: bool) -> void:
+	if player == null:
+		return
+	if player is EntityBase:
+		(player as EntityBase).simulation_enabled = enabled
 
 func _collect_player_state() -> Dictionary:
 	var player := _resolve_player()
@@ -376,6 +453,14 @@ func _resolve_player() -> Node3D:
 
 	return null
 
+func _update_center_chunk(player: Node3D) -> void:
+	var new_center: Vector2i = WorldConstants.world_to_chunk(
+		Vector3i(floori(player.global_position.x), 0, floori(player.global_position.z))
+	)
+	if new_center != _center_chunk:
+		_center_chunk = new_center
+		_streaming.on_center_chunk_changed(_center_chunk)
+
 func _on_world_meta_loaded(loaded_seed: int, player_state: Dictionary) -> void:
 	world_meta_loaded.emit(loaded_seed, player_state)
 
@@ -402,3 +487,4 @@ func _on_chunk_saved(coord: Vector2i) -> void:
 
 func _on_world_saved() -> void:
 	world_saved.emit()
+

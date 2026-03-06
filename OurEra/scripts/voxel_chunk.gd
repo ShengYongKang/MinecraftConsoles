@@ -28,6 +28,13 @@ func refresh_render(with_collision: bool = true) -> void:
 	renderer.configure(world, chunk_coord, blocks)
 	renderer.rebuild(with_collision)
 
+func sync_collision(enabled: bool) -> void:
+	renderer.attach(self)
+	renderer.sync_collision(enabled)
+
+func has_collision_enabled() -> bool:
+	return renderer.has_collision_enabled()
+
 func rebuild_mesh(with_collision: bool = true) -> void:
 	refresh_render(with_collision)
 
