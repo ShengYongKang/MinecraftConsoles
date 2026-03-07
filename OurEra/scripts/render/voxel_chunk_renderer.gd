@@ -38,6 +38,8 @@ func rebuild(with_collision: bool = true) -> void:
 
 	_ensure_render_nodes()
 	var render_config := _get_render_config()
+	_apply_shadow_casting(render_config)
+	_apply_shadow_casting(render_config)
 	var collect_stats := bool(render_config.get("collect_chunk_render_stats", false))
 	var collision_was_active := _collision_enabled
 	var neighbor_columns: Dictionary = {}
@@ -171,6 +173,12 @@ func _get_render_config() -> Dictionary:
 		"collision_strategy": CollisionBuilderScript.STRATEGY_NEARBY_CONCAVE,
 	}
 
+func _apply_shadow_casting(render_config: Dictionary) -> void:
+	if _mesh_instance == null:
+		return
+	var cast_shadows := bool(render_config.get("terrain_cast_shadows", false))
+	_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast_shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
 func _refresh_overlay_layers(render_config: Dictionary) -> void:
 	var fluid_surface_builder: Callable = render_config.get("fluid_surface_builder", Callable())
 	if not fluid_surface_builder.is_valid():
@@ -254,6 +262,7 @@ func _ensure_render_nodes() -> void:
 	if _mesh_instance == null:
 		_mesh_instance = MeshInstance3D.new()
 		_mesh_instance.name = "ChunkMesh"
+		_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_owner.add_child(_mesh_instance)
 
 	if _overlay_root == null:

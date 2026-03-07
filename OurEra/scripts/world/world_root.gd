@@ -60,6 +60,7 @@ signal world_saved()
 @export_range(0, 4096, 1) var max_cached_clean_chunks := 256
 @export_range(0.0, 300.0, 1.0) var autosave_interval_seconds := 30.0
 @export var collect_chunk_render_stats := false
+@export var terrain_cast_shadows := false
 @export_range(1, 8, 1) var max_chunk_collision_updates_per_frame := 1
 @export_range(0, 8, 1) var startup_mesh_warmup_frames := 1
 @export_range(0, 8, 1) var startup_mesh_updates_per_frame := 0
@@ -193,6 +194,7 @@ func get_chunk_render_config() -> Dictionary:
 	config["collect_chunk_render_stats"] = collect_chunk_render_stats or _startup_profile_enabled or _runtime_profile_enabled
 	config["light_sampler"] = Callable()
 	config["fluid_surface_builder"] = Callable()
+	config["terrain_cast_shadows"] = terrain_cast_shadows
 	config["render_budget"] = {
 		"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
@@ -613,10 +615,11 @@ func _configure_sun_shadow_defaults() -> void:
 		return
 	directional_sun.set("directional_shadow_mode", 2)
 	directional_sun.set("directional_shadow_blend_splits", true)
-	directional_sun.set("directional_shadow_max_distance", 96.0)
-	directional_sun.set("directional_shadow_fade_start", 0.85)
-	directional_sun.set("shadow_bias", 0.03)
-	directional_sun.set("shadow_normal_bias", 1.2)
+	directional_sun.set("directional_shadow_max_distance", 72.0)
+	directional_sun.set("directional_shadow_fade_start", 0.7)
+	directional_sun.set("directional_shadow_pancake_size", 24.0)
+	directional_sun.set("shadow_bias", 0.008)
+	directional_sun.set("shadow_normal_bias", 0.08)
 
 func _setup_modules() -> void:
 	_events = WorldEventsScript.new()
