@@ -38,6 +38,9 @@ signal world_saved()
 @export_range(2, 20, 1) var unload_radius_chunks := 6
 @export_range(1, 12, 1) var collision_radius_chunks := 2
 @export_range(1, 16, 1) var mesh_priority_radius_chunks := 3
+@export_range(0, 30, 1) var center_change_mesh_cooldown_frames := 12
+@export_range(1, 4, 1) var movement_mesh_updates_per_frame := 1
+@export_range(0, 1000000, 1000) var mesh_stage_target_usec := 280000
 @export_range(1, 32, 1) var max_chunk_generations_per_frame := 4
 @export_range(1, 32, 1) var max_chunk_mesh_updates_per_frame := 2
 @export_range(1, 8, 1) var generator_thread_count := 2
@@ -173,6 +176,9 @@ func get_chunk_render_config() -> Dictionary:
 		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
 		"collision_radius_chunks": collision_radius_chunks,
 		"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
+		"center_change_mesh_cooldown_frames": center_change_mesh_cooldown_frames,
+		"movement_mesh_updates_per_frame": movement_mesh_updates_per_frame,
+		"mesh_stage_target_usec": mesh_stage_target_usec,
 		"startup_mesh_warmup_frames": startup_mesh_warmup_frames,
 	}
 	return config
@@ -269,6 +275,9 @@ func _configure_startup_profile() -> void:
 			"load_radius_chunks": load_radius_chunks,
 			"collision_radius_chunks": collision_radius_chunks,
 			"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
+			"center_change_mesh_cooldown_frames": center_change_mesh_cooldown_frames,
+			"movement_mesh_updates_per_frame": movement_mesh_updates_per_frame,
+			"mesh_stage_target_usec": mesh_stage_target_usec,
 			"max_chunk_generations_per_frame": max_chunk_generations_per_frame,
 			"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 			"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
@@ -377,6 +386,9 @@ func _configure_runtime_profile() -> void:
 			"load_radius_chunks": load_radius_chunks,
 			"collision_radius_chunks": collision_radius_chunks,
 			"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
+			"center_change_mesh_cooldown_frames": center_change_mesh_cooldown_frames,
+			"movement_mesh_updates_per_frame": movement_mesh_updates_per_frame,
+			"mesh_stage_target_usec": mesh_stage_target_usec,
 			"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 			"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
 			"target_frames": _runtime_profile_frame_target,
@@ -441,6 +453,9 @@ func _apply_runtime_debug_overrides() -> void:
 		load_radius_chunks,
 		maxi(1, _env_int_optional("OURERA_MESH_PRIORITY_RADIUS_CHUNKS", mesh_priority_radius_chunks))
 	)
+	center_change_mesh_cooldown_frames = maxi(0, _env_int_optional("OURERA_CENTER_CHANGE_MESH_COOLDOWN_FRAMES", center_change_mesh_cooldown_frames))
+	movement_mesh_updates_per_frame = maxi(1, _env_int_optional("OURERA_MOVEMENT_MESH_UPDATES_PER_FRAME", movement_mesh_updates_per_frame))
+	mesh_stage_target_usec = maxi(0, _env_int_optional("OURERA_MESH_STAGE_TARGET_USEC", mesh_stage_target_usec))
 	max_chunk_mesh_updates_per_frame = maxi(1, _env_int_optional("OURERA_MAX_CHUNK_MESH_UPDATES_PER_FRAME", max_chunk_mesh_updates_per_frame))
 
 	if OS.get_environment("OURERA_DISABLE_SHADOWS") == "1":
@@ -479,6 +494,9 @@ func _sync_streaming_settings() -> void:
 		"unload_radius_chunks": unload_radius_chunks,
 		"collision_radius_chunks": collision_radius_chunks,
 		"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
+		"center_change_mesh_cooldown_frames": center_change_mesh_cooldown_frames,
+		"movement_mesh_updates_per_frame": movement_mesh_updates_per_frame,
+		"mesh_stage_target_usec": mesh_stage_target_usec,
 		"max_chunk_generations_per_frame": max_chunk_generations_per_frame,
 		"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,

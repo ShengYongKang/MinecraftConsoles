@@ -18,6 +18,9 @@ var load_radius_chunks := 4
 var unload_radius_chunks := 6
 var collision_radius_chunks := 2
 var mesh_priority_radius_chunks := 3
+var center_change_mesh_cooldown_frames := 12
+var movement_mesh_updates_per_frame := 1
+var mesh_stage_target_usec := 280000
 var max_chunk_generations_per_frame := 4
 var max_chunk_mesh_updates_per_frame := 2
 var max_chunk_collision_updates_per_frame := 1
@@ -47,6 +50,8 @@ var _pending_collision: Array[Vector2i] = []
 var _pending_collision_set: Dictionary = {}
 
 var _startup_mesh_warmup_frames_left := 0
+var _center_change_mesh_cooldown_left := 0
+var _recent_mesh_usec_per_chunk := 0.0
 var _last_profile_frame: Dictionary = {}
 var _last_immediate_profile: Dictionary = {}
 
@@ -72,6 +77,9 @@ func apply_settings(settings: Dictionary) -> void:
 		load_radius_chunks,
 		maxi(1, int(settings.get("mesh_priority_radius_chunks", mesh_priority_radius_chunks)))
 	)
+	center_change_mesh_cooldown_frames = maxi(0, int(settings.get("center_change_mesh_cooldown_frames", center_change_mesh_cooldown_frames)))
+	movement_mesh_updates_per_frame = maxi(1, int(settings.get("movement_mesh_updates_per_frame", movement_mesh_updates_per_frame)))
+	mesh_stage_target_usec = maxi(0, int(settings.get("mesh_stage_target_usec", mesh_stage_target_usec)))
 	max_chunk_generations_per_frame = int(
 		settings.get("max_chunk_generations_per_frame", max_chunk_generations_per_frame)
 	)
@@ -169,12 +177,14 @@ func force_streaming_update(center: Vector2i) -> void:
 	_process_collision_budget(center, _allow_collision_updates(), frame_profile)
 	_trim_chunk_cache()
 	_advance_startup_warmup()
+	_advance_center_change_cooldown()
 	if collect_runtime_profile:
 		frame_profile["queues"] = get_debug_snapshot()
 		frame_profile["frame_total_usec"] = Time.get_ticks_usec() - frame_started_usec
 		_last_profile_frame = frame_profile.duplicate(true)
 
 func on_center_chunk_changed(center: Vector2i) -> void:
+	_center_change_mesh_cooldown_left = center_change_mesh_cooldown_frames
 	_schedule_chunks_around_center(center)
 	_refresh_pending_generation(center)
 	_refresh_pending_mesh(center)
@@ -193,6 +203,7 @@ func process_frame(center: Vector2i) -> void:
 	_process_collision_budget(center, allow_collision, frame_profile)
 	_trim_chunk_cache()
 	_advance_startup_warmup()
+	_advance_center_change_cooldown()
 	if collect_runtime_profile:
 		frame_profile["queues"] = get_debug_snapshot()
 		frame_profile["frame_total_usec"] = Time.get_ticks_usec() - frame_started_usec
@@ -440,6 +451,11 @@ func _process_mesh_budget(center: Vector2i, allow_collision: bool, profile: Dict
 		if had_collision or wants_collision:
 			_queue_collision_sync(coord, had_collision)
 
+	if count > 0 and not profile.is_empty() and int(profile.get("mesh_chunk_count", 0)) > 0:
+		var chunk_count := int(profile.get("mesh_chunk_count", 0))
+		var per_chunk_usec := float(int(profile.get("mesh_stage_usec", 0))) / float(chunk_count)
+		_recent_mesh_usec_per_chunk = per_chunk_usec if _recent_mesh_usec_per_chunk <= 0.0 else lerpf(_recent_mesh_usec_per_chunk, per_chunk_usec, 0.35)
+
 	_add_profile_usec(profile, "mesh_queue_usec", Time.get_ticks_usec() - stage_started_usec)
 
 func _process_collision_budget(center: Vector2i, allow_collision: bool, profile: Dictionary = {}) -> void:
@@ -542,10 +558,10 @@ func _refresh_pending_collision(center: Vector2i) -> void:
 		_pending_collision_set[coord] = true
 
 func _queue_neighbor_meshes(coord: Vector2i, center: Vector2i) -> void:
-	_queue_chunk_mesh(Vector2i(coord.x + 1, coord.y), _neighbor_mesh_priority(center, Vector2i(coord.x + 1, coord.y)))
-	_queue_chunk_mesh(Vector2i(coord.x - 1, coord.y), _neighbor_mesh_priority(center, Vector2i(coord.x - 1, coord.y)))
-	_queue_chunk_mesh(Vector2i(coord.x, coord.y + 1), _neighbor_mesh_priority(center, Vector2i(coord.x, coord.y + 1)))
-	_queue_chunk_mesh(Vector2i(coord.x, coord.y - 1), _neighbor_mesh_priority(center, Vector2i(coord.x, coord.y - 1)))
+	_queue_neighbor_mesh(coord, Vector2i(coord.x + 1, coord.y), center)
+	_queue_neighbor_mesh(coord, Vector2i(coord.x - 1, coord.y), center)
+	_queue_neighbor_mesh(coord, Vector2i(coord.x, coord.y + 1), center)
+	_queue_neighbor_mesh(coord, Vector2i(coord.x, coord.y - 1), center)
 
 func _sync_collision_targets(center: Vector2i, allow_collision: bool, profile: Dictionary = {}) -> void:
 	var stage_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
@@ -573,7 +589,13 @@ func _allow_collision_updates() -> bool:
 func _mesh_budget_for_frame() -> int:
 	if _startup_mesh_warmup_frames_left > 0:
 		return mini(max_chunk_mesh_updates_per_frame, startup_mesh_updates_per_frame)
-	return max_chunk_mesh_updates_per_frame
+	var budget := max_chunk_mesh_updates_per_frame
+	if _center_change_mesh_cooldown_left > 0:
+		budget = mini(budget, movement_mesh_updates_per_frame)
+	if mesh_stage_target_usec > 0 and _recent_mesh_usec_per_chunk > 0.0:
+		var adaptive_budget := maxi(1, int(floor(float(mesh_stage_target_usec) / _recent_mesh_usec_per_chunk)))
+		budget = mini(budget, adaptive_budget)
+	return maxi(1, budget)
 
 func _collision_budget_for_frame(allow_collision: bool) -> int:
 	if allow_collision:
@@ -583,6 +605,10 @@ func _collision_budget_for_frame(allow_collision: bool) -> int:
 func _advance_startup_warmup() -> void:
 	if _startup_mesh_warmup_frames_left > 0:
 		_startup_mesh_warmup_frames_left -= 1
+
+func _advance_center_change_cooldown() -> void:
+	if _center_change_mesh_cooldown_left > 0:
+		_center_change_mesh_cooldown_left -= 1
 
 func _unload_far_chunks(center: Vector2i) -> void:
 	var keys: Array = _chunks.keys()
@@ -679,6 +705,15 @@ func _neighbor_mesh_priority(center: Vector2i, coord: Vector2i) -> int:
 	if WorldConstants.chunk_chebyshev_distance(center, coord) <= mesh_priority_radius_chunks:
 		return MESH_PRIORITY_PRIMARY
 	return MESH_PRIORITY_NEIGHBOR
+
+func _queue_neighbor_mesh(source_coord: Vector2i, neighbor_coord: Vector2i, center: Vector2i) -> void:
+	if not _chunks.has(neighbor_coord):
+		return
+	if _get_chunk_render_state(neighbor_coord) < CHUNK_RENDER_MESH:
+		return
+	if WorldConstants.chunk_chebyshev_distance(center, neighbor_coord) > load_radius_chunks:
+		return
+	_queue_chunk_mesh(neighbor_coord, _neighbor_mesh_priority(center, neighbor_coord))
 
 func _load_or_generate_chunk_data(coord: Vector2i) -> PackedInt32Array:
 	var saved_data: PackedInt32Array = storage.load_chunk_data(coord)
