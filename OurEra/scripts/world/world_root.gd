@@ -18,6 +18,7 @@ const WORLD_META_FORMAT_VERSION := WorldConstants.WORLD_META_FORMAT_VERSION
 const PRIMARY_PLAYER_ENTITY_ID := "player"
 const PLAYER_SPAWN_CELL_OFFSET := 0.5
 const PLAYER_SPAWN_FLOOR_OFFSET := 0.05
+const PLAYER_EXTRA_SPAWN_HEIGHT := 20.0
 
 signal world_meta_loaded(seed: int, player_state: Dictionary)
 signal player_state_applied(state: Dictionary)
@@ -36,6 +37,7 @@ signal world_saved()
 @export_range(1, 16, 1) var load_radius_chunks := 4
 @export_range(2, 20, 1) var unload_radius_chunks := 6
 @export_range(1, 12, 1) var collision_radius_chunks := 2
+@export_range(1, 16, 1) var mesh_priority_radius_chunks := 3
 @export_range(1, 32, 1) var max_chunk_generations_per_frame := 4
 @export_range(1, 32, 1) var max_chunk_mesh_updates_per_frame := 2
 @export_range(1, 8, 1) var generator_thread_count := 2
@@ -66,8 +68,23 @@ var _storage: WorldStorage
 var _generator: WorldGenerator
 var _streaming: ChunkStreaming
 var _material_registry
+var _startup_profile_enabled := false
+var _startup_profile_output_path := ""
+var _startup_profile_frame_target := 120
+var _startup_profile_frames_captured := 0
+var _startup_profile_written := false
+var _startup_profile_report: Dictionary = {}
+var _runtime_profile_enabled := false
+var _runtime_profile_output_path := ""
+var _runtime_profile_frame_target := 300
+var _runtime_profile_frames_captured := 0
+var _runtime_profile_written := false
+var _runtime_profile_report: Dictionary = {}
 
 func _ready() -> void:
+	_configure_startup_profile()
+	_configure_runtime_profile()
+	_apply_runtime_debug_overrides()
 	unload_radius_chunks = maxi(unload_radius_chunks, load_radius_chunks + 1)
 	_setup_modules()
 	_setup_material()
@@ -90,20 +107,39 @@ func _process(delta: float) -> void:
 	if player == null:
 		return
 
+	var frame_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
+	var runtime_frame_started_usec := Time.get_ticks_usec() if _runtime_profile_enabled else 0
+	var startup_stages: Dictionary = {}
 	_sync_streaming_settings()
 
 	if not _startup_streaming_initialized:
+		var prepare_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_prepare_player_spawn(player)
+		_record_profile_usec(startup_stages, "prepare_player_spawn_usec", prepare_started_usec)
+		_record_profile_immediate(startup_stages, "prepare_player_spawn", _consume_streaming_immediate_profile())
+		var prime_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_prime_startup_streaming(player)
+		_record_profile_usec(startup_stages, "prime_startup_streaming_usec", prime_started_usec)
+		var finalize_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_finalize_player_spawn(player)
+		_record_profile_usec(startup_stages, "finalize_player_spawn_usec", finalize_started_usec)
+		_record_profile_immediate(startup_stages, "finalize_player_spawn", _consume_streaming_immediate_profile())
+		var entity_restore_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_apply_loaded_entity_states_if_needed()
+		_record_profile_usec(startup_stages, "apply_loaded_entities_usec", entity_restore_started_usec)
 		_startup_streaming_initialized = true
 	else:
+		var entity_apply_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_apply_loaded_entity_states_if_needed()
+		_record_profile_usec(startup_stages, "apply_loaded_entities_usec", entity_apply_started_usec)
 
+	var center_update_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 	_update_center_chunk(player)
+	_record_profile_usec(startup_stages, "update_center_chunk_usec", center_update_started_usec)
 	_streaming.process_frame(_center_chunk)
 	_tick_autosave(delta)
+	_record_startup_profile_frame(frame_started_usec, startup_stages)
+	_record_runtime_profile_frame(runtime_frame_started_usec)
 
 func get_block_global(pos: Vector3i) -> int:
 	if _streaming == null:
@@ -129,13 +165,14 @@ func get_chunk_render_config() -> Dictionary:
 		config = _material_registry.get_render_config()
 
 	config["collision_strategy"] = "nearby_concave"
-	config["collect_chunk_render_stats"] = collect_chunk_render_stats
+	config["collect_chunk_render_stats"] = collect_chunk_render_stats or _startup_profile_enabled or _runtime_profile_enabled
 	config["light_sampler"] = Callable()
 	config["fluid_surface_builder"] = Callable()
 	config["render_budget"] = {
 		"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
 		"collision_radius_chunks": collision_radius_chunks,
+		"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
 		"startup_mesh_warmup_frames": startup_mesh_warmup_frames,
 	}
 	return config
@@ -183,6 +220,11 @@ func get_loaded_chunk(coord: Vector2i):
 		return null
 	return _streaming.get_loaded_chunk(coord)
 
+func get_chunk_meshing_neighbors(coord: Vector2i) -> Dictionary:
+	if _streaming == null:
+		return {}
+	return _streaming.get_chunk_meshing_neighbors(coord)
+
 func force_streaming_update() -> void:
 	var player := _resolve_player()
 	if player == null or _streaming == null:
@@ -208,6 +250,205 @@ static func world_to_chunk(pos: Vector3i) -> Vector2i:
 
 static func world_to_local(pos: Vector3i) -> Vector3i:
 	return WorldConstants.world_to_local(pos)
+
+func _configure_startup_profile() -> void:
+	_startup_profile_enabled = OS.get_environment("OURERA_STARTUP_PROFILE") == "1"
+	if not _startup_profile_enabled:
+		return
+
+	collect_chunk_render_stats = true
+	_startup_profile_output_path = OS.get_environment("OURERA_STARTUP_PROFILE_OUTPUT")
+	if _startup_profile_output_path.is_empty():
+		_startup_profile_output_path = ProjectSettings.globalize_path("res://startup_profile.json")
+	_startup_profile_frame_target = _env_int("OURERA_STARTUP_PROFILE_FRAMES", 120)
+	_startup_profile_frames_captured = 0
+	_startup_profile_written = false
+	_startup_profile_report = {
+		"meta": {
+			"seed": seed,
+			"load_radius_chunks": load_radius_chunks,
+			"collision_radius_chunks": collision_radius_chunks,
+			"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
+			"max_chunk_generations_per_frame": max_chunk_generations_per_frame,
+			"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
+			"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
+			"startup_mesh_warmup_frames": startup_mesh_warmup_frames,
+			"startup_mesh_updates_per_frame": startup_mesh_updates_per_frame,
+			"startup_collision_updates_per_frame": startup_collision_updates_per_frame,
+			"target_frames": _startup_profile_frame_target,
+		},
+		"frames": [],
+	}
+
+func _record_startup_profile_frame(frame_started_usec: int, startup_stages: Dictionary) -> void:
+	if not _startup_profile_enabled or _startup_profile_written:
+		return
+	if frame_started_usec <= 0:
+		return
+
+	var frame_entry := {
+		"frame_index": _startup_profile_frames_captured,
+		"world_process_usec": Time.get_ticks_usec() - frame_started_usec,
+		"startup_stages": _sanitize_profile_value(startup_stages),
+		"streaming": _sanitize_profile_value(_streaming.get_last_profile_frame() if _streaming != null else {}),
+		"queues": _sanitize_profile_value(_streaming.get_debug_snapshot() if _streaming != null else {}),
+	}
+	var frames: Array = _startup_profile_report.get("frames", [])
+	frames.append(frame_entry)
+	_startup_profile_report["frames"] = frames
+	_startup_profile_frames_captured += 1
+
+	if _startup_profile_frames_captured >= _startup_profile_frame_target:
+		_write_startup_profile()
+		get_tree().quit()
+
+func _record_profile_usec(stats: Dictionary, key: String, started_usec: int) -> void:
+	if not _startup_profile_enabled or started_usec <= 0:
+		return
+	stats[key] = Time.get_ticks_usec() - started_usec
+
+func _record_profile_immediate(stats: Dictionary, key: String, profile: Dictionary) -> void:
+	if not _startup_profile_enabled or profile.is_empty():
+		return
+	stats[key] = _sanitize_profile_value(profile)
+
+func _consume_streaming_immediate_profile() -> Dictionary:
+	if _streaming == null:
+		return {}
+	return _streaming.consume_last_immediate_profile()
+
+func _write_startup_profile() -> void:
+	if _startup_profile_written:
+		return
+	_startup_profile_written = true
+	_startup_profile_report["meta"] = _sanitize_profile_value(_startup_profile_report.get("meta", {}))
+	var file := FileAccess.open(_startup_profile_output_path, FileAccess.WRITE)
+	if file == null:
+		push_warning("Failed to write startup profile: %s" % _startup_profile_output_path)
+		return
+	file.store_string(JSON.stringify(_startup_profile_report, "\t"))
+	file.close()
+
+func _sanitize_profile_value(value: Variant) -> Variant:
+	if value is Dictionary:
+		var sanitized: Dictionary = {}
+		for key in value.keys():
+			sanitized[str(key)] = _sanitize_profile_value(value[key])
+		return sanitized
+	if value is Array:
+		var sanitized_array: Array = []
+		for item in value:
+			sanitized_array.append(_sanitize_profile_value(item))
+		return sanitized_array
+	if value is Vector2i:
+		return {"x": value.x, "y": value.y}
+	if value is Vector3i:
+		return {"x": value.x, "y": value.y, "z": value.z}
+	if value is Vector3:
+		return {"x": value.x, "y": value.y, "z": value.z}
+	return value
+
+func _env_int(name: String, default_value: int) -> int:
+	var raw := OS.get_environment(name)
+	if raw.is_empty():
+		return default_value
+	return maxi(1, int(raw))
+
+func _env_int_optional(name: String, current_value: int) -> int:
+	var raw := OS.get_environment(name)
+	if raw.is_empty():
+		return current_value
+	return maxi(0, int(raw))
+
+func _configure_runtime_profile() -> void:
+	_runtime_profile_enabled = OS.get_environment("OURERA_RUNTIME_PROFILE") == "1"
+	if not _runtime_profile_enabled:
+		return
+
+	_runtime_profile_output_path = OS.get_environment("OURERA_RUNTIME_PROFILE_OUTPUT")
+	if _runtime_profile_output_path.is_empty():
+		_runtime_profile_output_path = ProjectSettings.globalize_path("res://runtime_profile.json")
+	_runtime_profile_frame_target = _env_int("OURERA_RUNTIME_PROFILE_FRAMES", 300)
+	_runtime_profile_frames_captured = 0
+	_runtime_profile_written = false
+	_runtime_profile_report = {
+		"meta": {
+			"seed": seed,
+			"load_radius_chunks": load_radius_chunks,
+			"collision_radius_chunks": collision_radius_chunks,
+			"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
+			"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
+			"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
+			"target_frames": _runtime_profile_frame_target,
+		},
+		"frames": [],
+	}
+
+func _record_runtime_profile_frame(frame_started_usec: int) -> void:
+	if not _runtime_profile_enabled or _runtime_profile_written:
+		return
+	if frame_started_usec <= 0:
+		return
+
+	var frame_entry := {
+		"frame_index": _runtime_profile_frames_captured,
+		"world_process_usec": Time.get_ticks_usec() - frame_started_usec,
+		"streaming": _sanitize_profile_value(_streaming.get_last_profile_frame() if _streaming != null else {}),
+		"performance": _sanitize_profile_value(_collect_performance_snapshot()),
+	}
+	var frames: Array = _runtime_profile_report.get("frames", [])
+	frames.append(frame_entry)
+	_runtime_profile_report["frames"] = frames
+	_runtime_profile_frames_captured += 1
+
+	if _runtime_profile_frames_captured >= _runtime_profile_frame_target:
+		_write_runtime_profile()
+		get_tree().quit()
+
+func _write_runtime_profile() -> void:
+	if _runtime_profile_written:
+		return
+	_runtime_profile_written = true
+	_runtime_profile_report["meta"] = _sanitize_profile_value(_runtime_profile_report.get("meta", {}))
+	var file := FileAccess.open(_runtime_profile_output_path, FileAccess.WRITE)
+	if file == null:
+		push_warning("Failed to write runtime profile: %s" % _runtime_profile_output_path)
+		return
+	file.store_string(JSON.stringify(_runtime_profile_report, "\t"))
+	file.close()
+
+func _collect_performance_snapshot() -> Dictionary:
+	return {
+		"fps": _read_monitor(Performance.Monitor.TIME_FPS),
+		"process_time_ms": _read_monitor(Performance.Monitor.TIME_PROCESS) * 1000.0,
+		"physics_time_ms": _read_monitor(Performance.Monitor.TIME_PHYSICS_PROCESS) * 1000.0,
+		"navigation_time_ms": _read_monitor(Performance.Monitor.TIME_NAVIGATION_PROCESS) * 1000.0,
+		"draw_calls": _read_monitor(Performance.Monitor.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		"objects": _read_monitor(Performance.Monitor.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		"primitives": _read_monitor(Performance.Monitor.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+		"texture_mem_mb": _read_monitor(Performance.Monitor.RENDER_TEXTURE_MEM_USED) / 1024.0 / 1024.0,
+		"buffer_mem_mb": _read_monitor(Performance.Monitor.RENDER_BUFFER_MEM_USED) / 1024.0 / 1024.0,
+		"video_mem_mb": _read_monitor(Performance.Monitor.RENDER_VIDEO_MEM_USED) / 1024.0 / 1024.0,
+	}
+
+func _read_monitor(monitor: int) -> float:
+	return float(Performance.get_monitor(monitor))
+
+func _apply_runtime_debug_overrides() -> void:
+	load_radius_chunks = maxi(1, _env_int_optional("OURERA_LOAD_RADIUS_CHUNKS", load_radius_chunks))
+	collision_radius_chunks = maxi(1, _env_int_optional("OURERA_COLLISION_RADIUS_CHUNKS", collision_radius_chunks))
+	mesh_priority_radius_chunks = mini(
+		load_radius_chunks,
+		maxi(1, _env_int_optional("OURERA_MESH_PRIORITY_RADIUS_CHUNKS", mesh_priority_radius_chunks))
+	)
+	max_chunk_mesh_updates_per_frame = maxi(1, _env_int_optional("OURERA_MAX_CHUNK_MESH_UPDATES_PER_FRAME", max_chunk_mesh_updates_per_frame))
+
+	if OS.get_environment("OURERA_DISABLE_SHADOWS") == "1":
+		var parent := get_parent()
+		if parent != null:
+			var sun := parent.get_node_or_null("Sun")
+			if sun is DirectionalLight3D:
+				(sun as DirectionalLight3D).shadow_enabled = false
 
 func _setup_modules() -> void:
 	_events = WorldEventsScript.new()
@@ -237,6 +478,7 @@ func _sync_streaming_settings() -> void:
 		"load_radius_chunks": load_radius_chunks,
 		"unload_radius_chunks": unload_radius_chunks,
 		"collision_radius_chunks": collision_radius_chunks,
+		"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
 		"max_chunk_generations_per_frame": max_chunk_generations_per_frame,
 		"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 		"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
@@ -246,6 +488,7 @@ func _sync_streaming_settings() -> void:
 		"max_active_generation_jobs": max_active_generation_jobs,
 		"max_completed_chunk_integrations_per_frame": max_completed_chunk_integrations_per_frame,
 		"max_cached_clean_chunks": max_cached_clean_chunks,
+		"collect_runtime_profile": _startup_profile_enabled or _runtime_profile_enabled,
 	})
 
 func _setup_material() -> void:
@@ -305,6 +548,8 @@ func _prime_startup_streaming(player: Node3D) -> void:
 	_streaming.on_center_chunk_changed(_center_chunk)
 
 func _finalize_player_spawn(player: Node3D) -> void:
+	_ensure_player_support_collision(player)
+
 	if player is CharacterBody3D:
 		var body: CharacterBody3D = player
 		body.velocity = Vector3.ZERO
@@ -321,11 +566,19 @@ func _prime_player_support_chunk(player_position: Vector3) -> void:
 	)
 	_streaming.ensure_chunk_immediate(coord, true)
 
+func _ensure_player_support_collision(player: Node3D) -> void:
+	if player == null or _streaming == null:
+		return
+	var coord := WorldConstants.world_to_chunk(
+		Vector3i(floori(player.global_position.x), 0, floori(player.global_position.z))
+	)
+	_streaming.ensure_chunk_collision_immediate(coord)
+
 func _stabilize_player_spawn(player: Node3D) -> void:
 	var base_position: Vector3 = player.global_position
 	var column_x: int = floori(base_position.x)
 	var column_z: int = floori(base_position.z)
-	var safe_y: float = _find_highest_standable_y(column_x, column_z)
+	var safe_y: float = _find_highest_standable_y(column_x, column_z) + _get_player_spawn_height_offset(player) + PLAYER_EXTRA_SPAWN_HEIGHT
 	player.global_position = Vector3(
 		float(column_x) + PLAYER_SPAWN_CELL_OFFSET,
 		safe_y,
@@ -334,6 +587,22 @@ func _stabilize_player_spawn(player: Node3D) -> void:
 
 	if player is CharacterBody3D:
 		(player as CharacterBody3D).velocity = Vector3.ZERO
+
+func _get_player_spawn_height_offset(player: Node3D) -> float:
+	if player != null:
+		var collision_shape_node := player.find_child("CollisionShape3D", true, false)
+		if collision_shape_node is CollisionShape3D:
+			var shape: Shape3D = (collision_shape_node as CollisionShape3D).shape
+			if shape is CapsuleShape3D:
+				return (shape.height * 0.5) + shape.radius + PLAYER_SPAWN_FLOOR_OFFSET
+			if shape is BoxShape3D:
+				return (shape.size.y * 0.5) + PLAYER_SPAWN_FLOOR_OFFSET
+			if shape is CylinderShape3D:
+				return (shape.height * 0.5) + PLAYER_SPAWN_FLOOR_OFFSET
+			if shape is SphereShape3D:
+				return shape.radius + PLAYER_SPAWN_FLOOR_OFFSET
+
+	return 1.0 + PLAYER_SPAWN_FLOOR_OFFSET
 
 func _find_highest_standable_y(column_x: int, column_z: int) -> float:
 	for y in range(WorldConstants.WORLD_HEIGHT - 2, 1, -1):
@@ -347,15 +616,18 @@ func _find_highest_standable_y(column_x: int, column_z: int) -> float:
 			continue
 		if not ContentDBScript.can_replace_block(head_block):
 			continue
-		return float(y) + PLAYER_SPAWN_FLOOR_OFFSET
+		return float(y)
 
-	return 1.0 + PLAYER_SPAWN_FLOOR_OFFSET
+	return 1.0
 
 func _set_player_simulation_enabled(player: Node3D, enabled: bool) -> void:
 	if player == null:
 		return
 	if player is EntityBase:
-		(player as EntityBase).simulation_enabled = enabled
+		if enabled:
+			(player as EntityBase).set_deferred("simulation_enabled", true)
+		else:
+			(player as EntityBase).simulation_enabled = false
 
 func _collect_player_state() -> Dictionary:
 	var player := _resolve_player()

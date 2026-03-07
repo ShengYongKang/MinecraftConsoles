@@ -12,12 +12,20 @@ const FACE_NORMALS: Array[Vector3] = [
 
 const POSITIVE_FACE_FOR_AXIS: Array[int] = [0, 2, 4]
 const NEGATIVE_FACE_FOR_AXIS: Array[int] = [1, 3, 5]
-const QUAD_TRIANGLE_INDICES: Array[int] = [0, 1, 2, 0, 2, 3]
+const QUAD_TRIANGLE_INDICES: Array[int] = [0, 2, 1, 0, 3, 2]
 const FACE_SIGNATURE_MULTIPLIER := 8
+const NEIGHBOR_NEG_X := "neg_x"
+const NEIGHBOR_POS_X := "pos_x"
+const NEIGHBOR_NEG_Z := "neg_z"
+const NEIGHBOR_POS_Z := "pos_z"
 
 func build(context: Dictionary) -> Dictionary:
 	var block_sampler: Callable = context.get("block_sampler", Callable())
-	if not block_sampler.is_valid():
+	var dims: Vector3i = context.get("dimensions", Vector3i.ONE)
+	var chunk_blocks: PackedInt32Array = context.get("chunk_blocks", PackedInt32Array())
+	var neighbor_columns: Dictionary = context.get("neighbor_columns", {})
+	var use_cached_blocks := chunk_blocks.size() == dims.x * dims.y * dims.z
+	if not block_sampler.is_valid() and not use_cached_blocks:
 		return {
 			"mesh": null,
 			"stats": _empty_stats(),
@@ -32,11 +40,13 @@ func build(context: Dictionary) -> Dictionary:
 		st.set_material(material)
 
 	var stats := _empty_stats()
-	var dims: Vector3i = context.get("dimensions", Vector3i.ONE)
 	var chunk_origin: Vector3i = context.get("chunk_origin", Vector3i.ZERO)
 	var light_sampler: Callable = context.get("light_sampler", Callable())
 	var collect_collision_faces := bool(context.get("collect_collision_faces", false))
+	var collect_timing_stats := bool(context.get("collect_timing_stats", false))
 	var collision_faces := PackedVector3Array()
+	var solid_cache := {BlockDefs.AIR: false}
+	var geometry_started_usec := Time.get_ticks_usec() if collect_timing_stats else 0
 
 	for axis in range(3):
 		_build_axis_quads(
@@ -44,13 +54,17 @@ func build(context: Dictionary) -> Dictionary:
 			chunk_origin,
 			dims,
 			axis,
+			chunk_blocks,
+			neighbor_columns,
 			block_sampler,
 			light_sampler,
 			collect_collision_faces,
 			collision_faces,
-			stats
+			stats,
+			solid_cache
 		)
 
+	stats["mesh_geometry_usec"] = Time.get_ticks_usec() - geometry_started_usec if collect_timing_stats else 0
 	if int(stats["quad_count"]) == 0:
 		return {
 			"mesh": null,
@@ -58,8 +72,11 @@ func build(context: Dictionary) -> Dictionary:
 			"collision_faces": collision_faces,
 		}
 
+	var commit_started_usec := Time.get_ticks_usec() if collect_timing_stats else 0
+	var mesh := st.commit()
+	stats["mesh_commit_usec"] = Time.get_ticks_usec() - commit_started_usec if collect_timing_stats else 0
 	return {
-		"mesh": st.commit(),
+		"mesh": mesh,
 		"stats": stats,
 		"collision_faces": collision_faces,
 	}
@@ -69,11 +86,14 @@ func _build_axis_quads(
 	chunk_origin: Vector3i,
 	dims: Vector3i,
 	axis: int,
+	chunk_blocks: PackedInt32Array,
+	neighbor_columns: Dictionary,
 	block_sampler: Callable,
 	light_sampler: Callable,
 	collect_collision_faces: bool,
 	collision_faces: PackedVector3Array,
-	stats: Dictionary
+	stats: Dictionary,
+	solid_cache: Dictionary
 ) -> void:
 	var u := (axis + 1) % 3
 	var v := (axis + 2) % 3
@@ -95,12 +115,14 @@ func _build_axis_quads(
 			for uu in range(u_size):
 				cursor = _with_axis(cursor, u, uu)
 
-				var a := int(block_sampler.call(cursor))
-				var b := int(block_sampler.call(cursor + step))
+				var a := _sample_block(cursor, dims, chunk_blocks, neighbor_columns, block_sampler)
+				var b := _sample_block(cursor + step, dims, chunk_blocks, neighbor_columns, block_sampler)
+				var a_solid := _is_solid_cached(a, solid_cache)
+				var b_solid := _is_solid_cached(b, solid_cache)
 
-				if BlockDefs.is_solid(a) == BlockDefs.is_solid(b):
+				if a_solid == b_solid:
 					mask[mask_index] = 0
-				elif BlockDefs.is_solid(a):
+				elif a_solid:
 					mask[mask_index] = _encode_face_signature(a, POSITIVE_FACE_FOR_AXIS[axis])
 				else:
 					mask[mask_index] = _encode_face_signature(b, NEGATIVE_FACE_FOR_AXIS[axis])
@@ -281,9 +303,55 @@ func _with_axis(vec: Vector3i, axis: int, value: int) -> Vector3i:
 			vec.z = value
 	return vec
 
+func _sample_block(
+	local_pos: Vector3i,
+	dims: Vector3i,
+	chunk_blocks: PackedInt32Array,
+	neighbor_columns: Dictionary,
+	block_sampler: Callable
+) -> int:
+	if local_pos.y < 0 or local_pos.y >= dims.y:
+		return BlockDefs.AIR
+
+	if local_pos.x >= 0 and local_pos.x < dims.x and local_pos.z >= 0 and local_pos.z < dims.z:
+		if chunk_blocks.size() == dims.x * dims.y * dims.z:
+			return chunk_blocks[local_pos.x + local_pos.z * dims.x + local_pos.y * dims.x * dims.z]
+		if block_sampler.is_valid():
+			return int(block_sampler.call(local_pos))
+		return BlockDefs.AIR
+
+	if local_pos.x == -1 and local_pos.z >= 0 and local_pos.z < dims.z:
+		return _read_neighbor_column(neighbor_columns.get(NEIGHBOR_NEG_X, PackedInt32Array()), local_pos.z, local_pos.y, dims.z)
+	if local_pos.x == dims.x and local_pos.z >= 0 and local_pos.z < dims.z:
+		return _read_neighbor_column(neighbor_columns.get(NEIGHBOR_POS_X, PackedInt32Array()), local_pos.z, local_pos.y, dims.z)
+	if local_pos.z == -1 and local_pos.x >= 0 and local_pos.x < dims.x:
+		return _read_neighbor_column(neighbor_columns.get(NEIGHBOR_NEG_Z, PackedInt32Array()), local_pos.x, local_pos.y, dims.x)
+	if local_pos.z == dims.z and local_pos.x >= 0 and local_pos.x < dims.x:
+		return _read_neighbor_column(neighbor_columns.get(NEIGHBOR_POS_Z, PackedInt32Array()), local_pos.x, local_pos.y, dims.x)
+	if block_sampler.is_valid():
+		return int(block_sampler.call(local_pos))
+	return BlockDefs.AIR
+
+func _read_neighbor_column(column: PackedInt32Array, lateral_index: int, y: int, stride: int) -> int:
+	if stride <= 0 or column.is_empty():
+		return BlockDefs.AIR
+	var index := lateral_index + y * stride
+	if index < 0 or index >= column.size():
+		return BlockDefs.AIR
+	return column[index]
+
+func _is_solid_cached(block_id: int, solid_cache: Dictionary) -> bool:
+	if solid_cache.has(block_id):
+		return bool(solid_cache[block_id])
+	var solid := BlockDefs.is_solid(block_id)
+	solid_cache[block_id] = solid
+	return solid
+
 func _empty_stats() -> Dictionary:
 	return {
 		"quad_count": 0,
 		"triangle_count": 0,
 		"vertex_count": 0,
+		"mesh_geometry_usec": 0,
+		"mesh_commit_usec": 0,
 	}
