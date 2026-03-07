@@ -8,9 +8,10 @@ uniform bool use_vertex_lighting = false;
 
 void fragment() {
 	vec2 tile_index = UV2;
+	float safe_tile_resolution = max(tile_resolution, 1.0);
 	vec2 repeat_uv = fract(UV);
-	float inset = 0.5 / max(tile_resolution, 1.0);
-	vec2 tile_uv = mix(vec2(inset), vec2(1.0 - inset), repeat_uv);
+	vec2 tile_texel = floor(repeat_uv * safe_tile_resolution);
+	vec2 tile_uv = (tile_texel + vec2(0.5)) / safe_tile_resolution;
 	vec2 atlas_uv = (tile_index + tile_uv) / atlas_size;
 	vec4 albedo = texture(atlas_texture, atlas_uv);
 	vec3 lighting = vec3(1.0);

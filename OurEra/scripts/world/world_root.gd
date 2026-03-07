@@ -105,6 +105,7 @@ func _ready() -> void:
 	_configure_runtime_profile()
 	_configure_runtime_route()
 	_apply_runtime_debug_overrides()
+	_configure_sun_shadow_defaults()
 	unload_radius_chunks = maxi(unload_radius_chunks, load_radius_chunks + 1)
 	_setup_modules()
 	_setup_material()
@@ -599,6 +600,23 @@ func _apply_runtime_debug_overrides() -> void:
 			var sun := parent.get_node_or_null("Sun")
 			if sun is DirectionalLight3D:
 				(sun as DirectionalLight3D).shadow_enabled = false
+
+func _configure_sun_shadow_defaults() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var sun := parent.get_node_or_null("Sun")
+	if not (sun is DirectionalLight3D):
+		return
+	var directional_sun := sun as DirectionalLight3D
+	if not directional_sun.shadow_enabled:
+		return
+	directional_sun.set("directional_shadow_mode", 2)
+	directional_sun.set("directional_shadow_blend_splits", true)
+	directional_sun.set("directional_shadow_max_distance", 96.0)
+	directional_sun.set("directional_shadow_fade_start", 0.85)
+	directional_sun.set("shadow_bias", 0.03)
+	directional_sun.set("shadow_normal_bias", 1.2)
 
 func _setup_modules() -> void:
 	_events = WorldEventsScript.new()

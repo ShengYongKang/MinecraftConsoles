@@ -163,31 +163,59 @@ void append_quad(
     bool include_vertex_colors
 ) {
     const Vector3 normal = FACE_NORMALS[face_index];
-    const float repeat_u = du.length();
-    const float repeat_v = dv.length();
+    const float du_length = du.length();
+    const float dv_length = dv.length();
     const Vector2 tile_uv(
         static_cast<float>(sample_lookup(tile_lookup, block_id, face_index, 0)),
         static_cast<float>(sample_lookup(tile_lookup, block_id, face_index, 1))
     );
 
     std::array<Vector3, 4> vertices;
+    std::array<Vector2, 4> local_face_uvs;
     std::array<Vector2, 4> repeat_uvs;
     if (is_positive_face(face_index)) {
         vertices = {base_pos, base_pos + du, base_pos + du + dv, base_pos + dv};
-        repeat_uvs = {
+        local_face_uvs = {
             Vector2(0.0, 0.0),
-            Vector2(repeat_u, 0.0),
-            Vector2(repeat_u, repeat_v),
-            Vector2(0.0, repeat_v),
+            Vector2(du_length, 0.0),
+            Vector2(du_length, dv_length),
+            Vector2(0.0, dv_length),
         };
     } else {
         vertices = {base_pos, base_pos + dv, base_pos + du + dv, base_pos + du};
-        repeat_uvs = {
+        local_face_uvs = {
             Vector2(0.0, 0.0),
-            Vector2(0.0, repeat_v),
-            Vector2(repeat_u, repeat_v),
-            Vector2(repeat_u, 0.0),
+            Vector2(0.0, dv_length),
+            Vector2(du_length, dv_length),
+            Vector2(du_length, 0.0),
         };
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        const Vector2 &local_uv = local_face_uvs[i];
+        switch (face_index) {
+            case 0:
+                repeat_uvs[i] = Vector2(dv_length - local_uv.y, du_length - local_uv.x);
+                break;
+            case 1:
+                repeat_uvs[i] = Vector2(local_uv.y, du_length - local_uv.x);
+                break;
+            case 2:
+                repeat_uvs[i] = Vector2(local_uv.y, du_length - local_uv.x);
+                break;
+            case 3:
+                repeat_uvs[i] = Vector2(local_uv.y, local_uv.x);
+                break;
+            case 4:
+                repeat_uvs[i] = Vector2(local_uv.x, dv_length - local_uv.y);
+                break;
+            case 5:
+                repeat_uvs[i] = Vector2(du_length - local_uv.x, dv_length - local_uv.y);
+                break;
+            default:
+                repeat_uvs[i] = local_uv;
+                break;
+        }
     }
 
     for (int idx : QUAD_TRIANGLE_INDICES) {

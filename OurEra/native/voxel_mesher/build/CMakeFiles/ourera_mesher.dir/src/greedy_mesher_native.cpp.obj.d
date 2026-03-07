@@ -92,6 +92,7 @@ D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/i
 D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/include/godot_cpp/variant/packed_int32_array.hpp
 D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/include/godot_cpp/variant/packed_int64_array.hpp
 D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/include/godot_cpp/variant/packed_string_array.hpp
+D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/include/godot_cpp/variant/packed_vector2_array.hpp
 D:/UGit/MinecraftConsoles/OurEra/third_party/godot-cpp/include/godot_cpp/variant/vector2.hpp
 D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/include/godot_cpp/variant/packed_vector3_array.hpp
 D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/gen/include/godot_cpp/variant/packed_vector4_array.hpp

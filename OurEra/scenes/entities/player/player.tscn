@@ -19,5 +19,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
 [node name="Camera3D" type="Camera3D" parent="Head"]
 current = true
 fov = 75.0
-near = 0.05
-far = 500.0
+near = 0.1
+far = 256.0

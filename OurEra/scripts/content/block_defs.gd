@@ -31,7 +31,7 @@ const FACE_ANY := -1
 
 const ATLAS_SIZE := 16
 
-const TILE_GRASS_TOP := Vector2i(0, 0)
+const TILE_GRASS_TOP := Vector2i(2, 9)
 const TILE_STONE := Vector2i(1, 0)
 const TILE_DIRT := Vector2i(2, 0)
 const TILE_GRASS_SIDE := Vector2i(3, 0)

@@ -1,6 +1,8 @@
 class_name MeshBuilderGreedy
 extends RefCounted
 
+const GameRules = preload("res://scripts/content/game_rules.gd")
+
 const FACE_NORMALS: Array[Vector3] = [
 	Vector3(1, 0, 0),
 	Vector3(-1, 0, 0),
@@ -194,12 +196,13 @@ func _add_quad(
 ) -> void:
 	var tile := BlockDefs.tile_for_face(block_id, face_index)
 	var tile_uv := Vector2(tile.x, tile.y)
-	var repeat_u := du.length()
-	var repeat_v := dv.length()
+	var du_length := du.length()
+	var dv_length := dv.length()
 	var normal: Vector3 = FACE_NORMALS[face_index]
 	var vertices: Array[Vector3]
 	var repeat_uvs: Array[Vector2]
 	var vertex_color := _sample_face_color(light_sampler, chunk_origin, base_pos, du, dv, block_id, face_index)
+	var local_face_uvs: Array[Vector2]
 
 	if _is_positive_face(face_index):
 		vertices = [
@@ -208,11 +211,11 @@ func _add_quad(
 			base_pos + du + dv,
 			base_pos + dv
 		]
-		repeat_uvs = [
+		local_face_uvs = [
 			Vector2(0.0, 0.0),
-			Vector2(repeat_u, 0.0),
-			Vector2(repeat_u, repeat_v),
-			Vector2(0.0, repeat_v)
+			Vector2(du_length, 0.0),
+			Vector2(du_length, dv_length),
+			Vector2(0.0, dv_length)
 		]
 	else:
 		vertices = [
@@ -221,12 +224,14 @@ func _add_quad(
 			base_pos + du + dv,
 			base_pos + du
 		]
-		repeat_uvs = [
+		local_face_uvs = [
 			Vector2(0.0, 0.0),
-			Vector2(0.0, repeat_v),
-			Vector2(repeat_u, repeat_v),
-			Vector2(repeat_u, 0.0)
+			Vector2(0.0, dv_length),
+			Vector2(du_length, dv_length),
+			Vector2(du_length, 0.0)
 		]
+
+	repeat_uvs = _build_repeat_uvs(face_index, local_face_uvs, du_length, dv_length)
 
 	for vertex_index in QUAD_TRIANGLE_INDICES:
 		st.set_normal(normal)
@@ -241,6 +246,29 @@ func _add_quad(
 	stats["triangle_count"] = int(stats["triangle_count"]) + 2
 	stats["vertex_count"] = int(stats["vertex_count"]) + 6
 
+func _build_repeat_uvs(face_index: int, local_face_uvs: Array[Vector2], du_length: float, dv_length: float) -> Array[Vector2]:
+	var repeat_uvs: Array[Vector2] = []
+	repeat_uvs.resize(local_face_uvs.size())
+	for index in range(local_face_uvs.size()):
+		repeat_uvs[index] = _map_face_uv(face_index, local_face_uvs[index], du_length, dv_length)
+	return repeat_uvs
+
+func _map_face_uv(face_index: int, local_uv: Vector2, du_length: float, dv_length: float) -> Vector2:
+	match face_index:
+		GameRules.FACE_POS_X:
+			return Vector2(dv_length - local_uv.y, du_length - local_uv.x)
+		GameRules.FACE_NEG_X:
+			return Vector2(local_uv.y, du_length - local_uv.x)
+		GameRules.FACE_TOP:
+			return Vector2(local_uv.y, du_length - local_uv.x)
+		GameRules.FACE_BOTTOM:
+			return Vector2(local_uv.y, local_uv.x)
+		GameRules.FACE_POS_Z:
+			return Vector2(local_uv.x, dv_length - local_uv.y)
+		GameRules.FACE_NEG_Z:
+			return Vector2(du_length - local_uv.x, dv_length - local_uv.y)
+		_:
+			return local_uv
 func _sample_face_color(
 	light_sampler: Callable,
 	chunk_origin: Vector3i,

@@ -518,7 +518,6 @@ func _process_collision_budget(center: Vector2i, allow_collision: bool, profile:
 func _queue_chunk_mesh(coord: Vector2i, priority: int = MESH_PRIORITY_PRIMARY) -> void:
 	if not _chunks.has(coord):
 		return
-	_set_chunk_render_state(coord, CHUNK_RENDER_NONE)
 	if _pending_mesh_set.has(coord):
 		var existing_priority := int(_pending_mesh_priority.get(coord, priority))
 		if priority < existing_priority:
