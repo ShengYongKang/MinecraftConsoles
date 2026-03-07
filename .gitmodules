@@ -1,0 +1,3 @@
+[submodule "OurEra/third_party/godot-cpp"]
+	path = OurEra/third_party/godot-cpp
+	url = git@github.com:godotengine/godot-cpp.git

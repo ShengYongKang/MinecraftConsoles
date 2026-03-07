@@ -815,3 +815,6 @@ func _get_chunk_render_state(coord: Vector2i) -> int:
 func _set_chunk_render_state(coord: Vector2i, state: int) -> void:
 	_chunk_render_state[coord] = state
 
+
+
+

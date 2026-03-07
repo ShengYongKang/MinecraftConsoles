@@ -8,6 +8,7 @@ const WorldStorageScript = preload("res://scripts/world/world_storage.gd")
 const WorldGeneratorScript = preload("res://scripts/world/world_generator.gd")
 const ChunkStreamingScript = preload("res://scripts/world/chunk_streaming.gd")
 const MaterialRegistryScript = preload("res://scripts/render/material_registry.gd")
+const RuntimeRouteDriverScript = preload("res://scripts/debug/runtime_route_driver.gd")
 
 const CHUNK_WIDTH := WorldConstants.CHUNK_WIDTH
 const WORLD_HEIGHT := WorldConstants.WORLD_HEIGHT
@@ -83,10 +84,14 @@ var _runtime_profile_frame_target := 300
 var _runtime_profile_frames_captured := 0
 var _runtime_profile_written := false
 var _runtime_profile_report: Dictionary = {}
+var _runtime_route_enabled := false
+var _runtime_route_name := ""
+var _runtime_route_driver
 
 func _ready() -> void:
 	_configure_startup_profile()
 	_configure_runtime_profile()
+	_configure_runtime_route()
 	_apply_runtime_debug_overrides()
 	unload_radius_chunks = maxi(unload_radius_chunks, load_radius_chunks + 1)
 	_setup_modules()
@@ -135,6 +140,9 @@ func _process(delta: float) -> void:
 		var entity_apply_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_apply_loaded_entity_states_if_needed()
 		_record_profile_usec(startup_stages, "apply_loaded_entities_usec", entity_apply_started_usec)
+
+	if _runtime_route_enabled and _startup_streaming_initialized:
+		_apply_runtime_route(player)
 
 	var center_update_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 	_update_center_chunk(player)
@@ -392,6 +400,7 @@ func _configure_runtime_profile() -> void:
 			"max_chunk_mesh_updates_per_frame": max_chunk_mesh_updates_per_frame,
 			"max_chunk_collision_updates_per_frame": max_chunk_collision_updates_per_frame,
 			"target_frames": _runtime_profile_frame_target,
+			"runtime_route": _runtime_route_name,
 		},
 		"frames": [],
 	}
@@ -408,6 +417,8 @@ func _record_runtime_profile_frame(frame_started_usec: int) -> void:
 		"streaming": _sanitize_profile_value(_streaming.get_last_profile_frame() if _streaming != null else {}),
 		"performance": _sanitize_profile_value(_collect_performance_snapshot()),
 	}
+	if _runtime_route_enabled:
+		frame_entry["route"] = _sanitize_profile_value(_collect_runtime_route_snapshot())
 	var frames: Array = _runtime_profile_report.get("frames", [])
 	frames.append(frame_entry)
 	_runtime_profile_report["frames"] = frames
@@ -428,6 +439,26 @@ func _write_runtime_profile() -> void:
 		return
 	file.store_string(JSON.stringify(_runtime_profile_report, "\t"))
 	file.close()
+
+func _configure_runtime_route() -> void:
+	_runtime_route_name = OS.get_environment("OURERA_RUNTIME_ROUTE").strip_edges()
+	_runtime_route_enabled = not _runtime_route_name.is_empty()
+	_runtime_route_driver = null
+	if not _runtime_route_enabled:
+		return
+	_runtime_route_driver = RuntimeRouteDriverScript.new()
+	_runtime_route_driver.configure(_runtime_route_name)
+
+func _apply_runtime_route(player: Node3D) -> void:
+	if _runtime_route_driver == null:
+		return
+	_set_player_simulation_enabled(player, false)
+	_runtime_route_driver.apply(player, _runtime_profile_frames_captured)
+
+func _collect_runtime_route_snapshot() -> Dictionary:
+	if _runtime_route_driver == null:
+		return {}
+	return _runtime_route_driver.snapshot(_runtime_profile_frames_captured)
 
 func _collect_performance_snapshot() -> Dictionary:
 	return {
@@ -777,4 +808,15 @@ func _on_chunk_saved(coord: Vector2i) -> void:
 
 func _on_world_saved() -> void:
 	world_saved.emit()
+
+
+
+
+
+
+
+
+
+
+
 

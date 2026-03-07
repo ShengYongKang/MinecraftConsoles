@@ -1,0 +1,8 @@
+[configuration]
+entry_symbol = "ourera_mesher_library_init"
+compatibility_minimum = "4.6"
+reloadable = true
+
+[libraries]
+windows.debug.x86_64 = "res://native/voxel_mesher/bin/windows/ourera_mesher.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://native/voxel_mesher/bin/windows/ourera_mesher.windows.template_release.x86_64.dll"

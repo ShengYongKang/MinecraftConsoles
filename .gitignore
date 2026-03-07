@@ -443,3 +443,7 @@ Open-OurEra-Godot.cmd
 OurEra/.godot/
 OurEra/save_data/
 OurEra/godot-check.log
+
+# OurEra agent runtime tools
+OurEra/tmp/
+

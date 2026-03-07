@@ -1,0 +1,3 @@
+# Hashes of file build rules.
+25f01b557db0b378d9648a173af6a7d7 godot-cpp-build/CMakeFiles/generate_bindings
+f39619241b81ca26a3f99ba4b6eedb31 godot-cpp-build/gen/include/gdextension_interface.h

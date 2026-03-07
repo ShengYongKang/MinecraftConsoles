@@ -2,7 +2,7 @@ class_name VoxelChunkRenderer
 extends RefCounted
 
 const WorldConstants = preload("res://scripts/world/world_constants.gd")
-const MeshBuilderGreedyScript = preload("res://scripts/render/mesh_builder_greedy.gd")
+const MeshBuilderBackendScript = preload("res://scripts/render/mesh_builder_backend.gd")
 const CollisionBuilderScript = preload("res://scripts/render/collision_builder.gd")
 
 var world
@@ -15,7 +15,7 @@ var _overlay_root: Node3D
 var _static_body: StaticBody3D
 var _collision_shape: CollisionShape3D
 
-var _mesh_builder = MeshBuilderGreedyScript.new()
+var _mesh_builder = MeshBuilderBackendScript.new()
 var _collision_builder = CollisionBuilderScript.new()
 var _last_build_stats: Dictionary = {}
 var _last_collision_sync_stats: Dictionary = {}
@@ -58,6 +58,7 @@ func rebuild(with_collision: bool = true) -> void:
 		"neighbor_columns": neighbor_columns,
 		"block_sampler": Callable(self, "_sample_block_for_meshing"),
 		"light_sampler": render_config.get("light_sampler", Callable()),
+		"include_vertex_colors": bool(render_config.get("use_vertex_lighting", false)),
 		"collect_collision_faces": with_collision,
 		"collect_timing_stats": collect_stats,
 	})
@@ -270,3 +271,4 @@ func _ensure_render_nodes() -> void:
 		_collision_shape.name = "ChunkCollision"
 		_collision_shape.disabled = true
 		_static_body.add_child(_collision_shape)
+

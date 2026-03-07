@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/cmake_install.cmake",
+		"D:/UGit/MinecraftConsoles/OurEra/native/voxel_mesher/build/godot-cpp-build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

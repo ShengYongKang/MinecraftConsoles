@@ -11,6 +11,7 @@ Godot 4 voxel prototype inspired by the Minecraft console source layout in this 
 - Frame-budgeted mesh rebuild scheduling
 - Greedy chunk meshing to reduce triangle count and rebuild cost
 - Repeating atlas tiles on merged greedy quads
+- Optional native GDExtension greedy mesher bridge with automatic GDScript fallback
 - Collision meshes only for nearby chunks
 - LRU-style eviction for clean unloaded chunk data
 
