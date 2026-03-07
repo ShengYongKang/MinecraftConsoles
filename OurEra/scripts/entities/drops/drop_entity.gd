@@ -10,6 +10,7 @@ extends EntityBase
 func _init() -> void:
 	entity_category = "drop"
 	entity_archetype = "drop"
+	stair_assist_enabled = false
 
 func build_ai_context() -> Dictionary:
 	return {

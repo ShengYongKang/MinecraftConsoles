@@ -2,7 +2,7 @@ class_name MobBase
 extends EntityBase
 
 @export var move_speed := 4.0
-@export var jump_velocity := 4.6
+@export var jump_velocity := 6.7
 @export var gravity := 18.0
 @export var max_health := 20.0
 @export var ai_enabled := true

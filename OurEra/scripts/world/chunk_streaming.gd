@@ -119,6 +119,38 @@ func get_loaded_chunk(coord: Vector2i):
 		return null
 	return _chunks[coord]
 
+func get_loaded_chunk_coords() -> Array[Vector2i]:
+	var coords: Array[Vector2i] = []
+	for coord_any in _chunks.keys():
+		coords.append(coord_any)
+	coords.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		if a.x != b.x:
+			return a.x < b.x
+		return a.y < b.y
+	)
+	return coords
+
+func get_chunk_state(coord: Vector2i) -> Dictionary:
+	return {
+		"coord": coord,
+		"has_data": _chunk_blocks.has(coord),
+		"loaded": _chunks.has(coord),
+		"dirty": bool(_chunk_dirty.get(coord, false)),
+		"render_state": _get_chunk_render_state(coord),
+		"collision_enabled": bool(_chunk_collision_state.get(coord, false)),
+		"ready": is_chunk_ready(coord, false),
+		"ready_for_entities": is_chunk_ready(coord, true),
+	}
+
+func is_chunk_ready(coord: Vector2i, require_collision: bool = false) -> bool:
+	if not _chunks.has(coord):
+		return false
+	if _get_chunk_render_state(coord) < CHUNK_RENDER_MESH:
+		return false
+	if require_collision:
+		return bool(_chunk_collision_state.get(coord, false))
+	return true
+
 func get_last_profile_frame() -> Dictionary:
 	return _last_profile_frame.duplicate(true)
 

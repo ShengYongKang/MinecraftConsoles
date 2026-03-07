@@ -1,8 +1,6 @@
 class_name EntityBase
 extends CharacterBody3D
 
-const ContentDBScript = preload("res://scripts/content/content_db.gd")
-
 signal entity_registered(entity: EntityBase)
 signal entity_unregistered(entity: EntityBase)
 signal despawn_requested(entity: EntityBase, reason: String)
@@ -15,6 +13,8 @@ signal despawn_requested(entity: EntityBase, reason: String)
 @export var auto_register_with_system := true
 @export var gravity_acceleration := 18.0
 @export var terminal_fall_speed := 54.0
+@export var ground_snap_length := 0.3
+@export var stair_assist_enabled := false
 
 var entity_system: Node
 var world: Node
@@ -102,7 +102,7 @@ func compute_planar_move_direction(move_input: Vector2) -> Vector3:
 func compute_planar_move_direction_from_basis(move_input: Vector2, basis: Basis) -> Vector3:
 	var forward: Vector3 = -basis.z
 	var right: Vector3 = basis.x
-	var wish_dir: Vector3 = right * move_input.x + forward * move_input.y
+	var wish_dir: Vector3 = right * move_input.x + forward * -move_input.y
 	wish_dir.y = 0.0
 	return wish_dir.normalized()
 
@@ -112,31 +112,82 @@ func step_character_movement(
 	move_speed: float,
 	jump_speed: float,
 	wants_jump: bool,
-	gravity_value: float = gravity_acceleration
-) -> void:
+	gravity_value: float = gravity_acceleration,
+	jump_held: bool = false,
+	fall_gravity_multiplier: float = 1.0,
+	jump_release_gravity_multiplier: float = 1.0
+) -> float:
 	var planar_dir: Vector3 = wish_dir
 	planar_dir.y = 0.0
 	planar_dir = planar_dir.normalized()
 
+	var was_on_floor := is_on_floor()
+	var previous_vertical_speed := velocity.y
+
+	floor_snap_length = 0.0 if wants_jump else ground_snap_length
 	velocity.x = planar_dir.x * move_speed
 	velocity.z = planar_dir.z * move_speed
 
-	if not is_on_floor():
-		velocity.y = maxf(velocity.y - gravity_value * delta, -terminal_fall_speed)
+	if not was_on_floor:
+		var applied_gravity := gravity_value
+		if velocity.y < 0.0:
+			applied_gravity *= maxf(fall_gravity_multiplier, 1.0)
+		elif velocity.y > 0.0 and not jump_held:
+			applied_gravity *= maxf(jump_release_gravity_multiplier, 1.0)
+		velocity.y = maxf(velocity.y - applied_gravity * delta, -terminal_fall_speed)
 	elif wants_jump:
 		velocity.y = jump_speed
+	else:
+		velocity.y = minf(velocity.y, 0.0)
 
 	move_and_slide()
+	if not was_on_floor and is_on_floor():
+		return absf(minf(previous_vertical_speed, 0.0))
+	return 0.0
 
 func get_world_block(pos: Vector3i) -> int:
 	if world == null or not world.has_method("get_block_global"):
-		return ContentDBScript.AIR
+		return BlockDefs.AIR
 	return world.get_block_global(pos)
 
 func set_world_block(pos: Vector3i, block_id: int) -> void:
 	if world == null or not world.has_method("set_block_global"):
 		return
 	world.set_block_global(pos, block_id)
+
+func get_collision_shape_node() -> CollisionShape3D:
+	var collision_shape := find_child("CollisionShape3D", true, false)
+	if collision_shape is CollisionShape3D:
+		return collision_shape as CollisionShape3D
+	return null
+
+func get_collision_bounds(horizontal_inset: float = 0.0, vertical_inset: float = 0.0) -> AABB:
+	var collision_shape := get_collision_shape_node()
+	if collision_shape == null or collision_shape.shape == null:
+		return AABB(global_position, Vector3.ZERO)
+
+	var center: Vector3 = collision_shape.global_transform.origin
+	var half_extents := _get_collision_half_extents(
+		collision_shape.shape,
+		collision_shape.global_transform.basis.get_scale().abs()
+	)
+	var inset := Vector3(
+		maxf(horizontal_inset, 0.0),
+		maxf(vertical_inset, 0.0),
+		maxf(horizontal_inset, 0.0)
+	)
+	var size := Vector3(
+		maxf(half_extents.x * 2.0 - inset.x * 2.0, 0.0),
+		maxf(half_extents.y * 2.0 - inset.y * 2.0, 0.0),
+		maxf(half_extents.z * 2.0 - inset.z * 2.0, 0.0)
+	)
+	return AABB(center - half_extents + inset, size)
+
+func get_collision_bottom_y() -> float:
+	return get_collision_bounds().position.y
+
+func get_collision_top_y() -> float:
+	return get_collision_bounds().end.y
 
 func get_persisted_state() -> Dictionary:
 	var state: Dictionary = {
@@ -234,3 +285,38 @@ func _get_custom_persisted_state() -> Dictionary:
 
 func _apply_custom_persisted_state(_state: Dictionary) -> void:
 	pass
+
+func _get_collision_half_extents(shape: Shape3D, shape_scale: Vector3) -> Vector3:
+	if shape is CapsuleShape3D:
+		var capsule := shape as CapsuleShape3D
+		return Vector3(
+			capsule.radius * absf(shape_scale.x),
+			(capsule.height * 0.5) * absf(shape_scale.y),
+			capsule.radius * absf(shape_scale.z)
+		)
+	if shape is CylinderShape3D:
+		var cylinder := shape as CylinderShape3D
+		return Vector3(
+			cylinder.radius * absf(shape_scale.x),
+			(cylinder.height * 0.5) * absf(shape_scale.y),
+			cylinder.radius * absf(shape_scale.z)
+		)
+	if shape is BoxShape3D:
+		var box := shape as BoxShape3D
+		return Vector3(
+			box.size.x * 0.5 * absf(shape_scale.x),
+			box.size.y * 0.5 * absf(shape_scale.y),
+			box.size.z * 0.5 * absf(shape_scale.z)
+		)
+	if shape is SphereShape3D:
+		var sphere := shape as SphereShape3D
+		return Vector3(
+			sphere.radius * absf(shape_scale.x),
+			sphere.radius * absf(shape_scale.y),
+			sphere.radius * absf(shape_scale.z)
+		)
+	return Vector3(
+		0.5 * absf(shape_scale.x),
+		0.5 * absf(shape_scale.y),
+		0.5 * absf(shape_scale.z)
+	)

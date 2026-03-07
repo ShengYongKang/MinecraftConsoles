@@ -20,6 +20,10 @@ const PRIMARY_PLAYER_ENTITY_ID := "player"
 const PLAYER_SPAWN_CELL_OFFSET := 0.5
 const PLAYER_SPAWN_FLOOR_OFFSET := 0.05
 const PLAYER_EXTRA_SPAWN_HEIGHT := 20.0
+const WORLD_PROFILE_CUSTOM := "Custom"
+const WORLD_PROFILE_DEBUG := "Debug"
+const WORLD_PROFILE_SMOOTH := "Smooth"
+const WORLD_PROFILE_SHOWCASE := "Showcase"
 
 signal world_meta_loaded(seed: int, player_state: Dictionary)
 signal player_state_applied(state: Dictionary)
@@ -29,8 +33,14 @@ signal chunk_loaded(coord: Vector2i, chunk)
 signal chunk_unloaded(coord: Vector2i)
 signal chunk_changed(coord: Vector2i)
 signal chunk_saved(coord: Vector2i)
+signal world_ready(player_position: Vector3, center_chunk: Vector2i)
+signal center_chunk_changed(previous: Vector2i, current: Vector2i)
+signal chunk_state_changed(coord: Vector2i, state: Dictionary)
+signal world_save_started(reason: String)
+signal world_save_completed(success: bool, reason: String)
 signal world_saved()
 
+@export_enum("Custom","Debug","Smooth","Showcase") var world_profile := WORLD_PROFILE_SMOOTH
 @export var entity_system_path: NodePath
 @export var save_slot_name: String = "default"
 @export_file("*.png") var terrain_atlas_texture_path := "res://assets/textures/terrain.png"
@@ -66,6 +76,7 @@ var _player_state_applied: bool = false
 var _entity_states_applied: bool = false
 var _startup_streaming_initialized: bool = false
 var _autosave_elapsed: float = 0.0
+var _world_ready_emitted := false
 
 var _events: WorldEvents
 var _storage: WorldStorage
@@ -89,6 +100,7 @@ var _runtime_route_name := ""
 var _runtime_route_driver
 
 func _ready() -> void:
+	_apply_world_profile()
 	_configure_startup_profile()
 	_configure_runtime_profile()
 	_configure_runtime_route()
@@ -106,7 +118,7 @@ func _ready() -> void:
 	_set_player_simulation_enabled(player, false)
 
 func _exit_tree() -> void:
-	save_now()
+	save_now("autosave")
 	if _generator != null:
 		_generator.stop_workers()
 
@@ -136,6 +148,7 @@ func _process(delta: float) -> void:
 		_apply_loaded_entity_states_if_needed()
 		_record_profile_usec(startup_stages, "apply_loaded_entities_usec", entity_restore_started_usec)
 		_startup_streaming_initialized = true
+		_emit_world_ready(player)
 	else:
 		var entity_apply_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 		_apply_loaded_entity_states_if_needed()
@@ -202,6 +215,13 @@ func get_save_slot() -> String:
 		return normalized
 	return _storage.normalized_save_slot_name()
 
+
+func get_world_profile_name() -> String:
+	return world_profile
+
+func is_world_ready() -> bool:
+	return _startup_streaming_initialized and _world_ready_emitted
+
 func get_player() -> Node3D:
 	return _resolve_player()
 
@@ -234,6 +254,29 @@ func get_loaded_chunk(coord: Vector2i):
 		return null
 	return _streaming.get_loaded_chunk(coord)
 
+func get_loaded_chunk_coords() -> Array[Vector2i]:
+	if _streaming == null:
+		return []
+	return _streaming.get_loaded_chunk_coords()
+
+func get_chunk_state(coord: Vector2i) -> Dictionary:
+	if _streaming == null:
+		return {}
+	return _streaming.get_chunk_state(coord)
+
+func is_chunk_ready(coord: Vector2i, require_collision: bool = false) -> bool:
+	if _streaming == null:
+		return false
+	return _streaming.is_chunk_ready(coord, require_collision)
+
+func get_streaming_debug_snapshot() -> Dictionary:
+	if _streaming == null:
+		return {}
+	return _streaming.get_debug_snapshot()
+
+func get_surface_height_global(x: int, z: int) -> float:
+	return _find_highest_standable_y(x, z)
+
 func get_chunk_meshing_neighbors(coord: Vector2i) -> Dictionary:
 	if _streaming == null:
 		return {}
@@ -249,12 +292,16 @@ func force_streaming_update() -> void:
 	)
 	_streaming.force_streaming_update(_center_chunk)
 
-func save_now() -> void:
+func save_now(reason: String = "manual") -> bool:
 	if _storage == null or _streaming == null:
-		return
-	_save_world_meta()
+		return false
+	_emit_world_save_started(reason)
+	var success := _save_world_meta()
 	_streaming.flush_dirty_chunks()
-	_events.world_saved.emit()
+	_emit_world_save_completed(success, reason)
+	if success:
+		_events.world_saved.emit()
+	return success
 
 static func to_index(x: int, y: int, z: int) -> int:
 	return WorldConstants.to_index(x, y, z)
@@ -264,6 +311,62 @@ static func world_to_chunk(pos: Vector3i) -> Vector2i:
 
 static func world_to_local(pos: Vector3i) -> Vector3i:
 	return WorldConstants.world_to_local(pos)
+
+func _apply_world_profile() -> void:
+	match world_profile:
+		WORLD_PROFILE_DEBUG:
+			load_radius_chunks = 1
+			unload_radius_chunks = 2
+			collision_radius_chunks = 1
+			mesh_priority_radius_chunks = 1
+			center_change_mesh_cooldown_frames = 8
+			movement_mesh_updates_per_frame = 1
+			mesh_stage_target_usec = 180000
+			max_chunk_generations_per_frame = 2
+			max_chunk_mesh_updates_per_frame = 1
+			max_chunk_collision_updates_per_frame = 1
+			max_completed_chunk_integrations_per_frame = 2
+			max_cached_clean_chunks = 64
+			autosave_interval_seconds = 15.0
+			startup_mesh_warmup_frames = 0
+			startup_mesh_updates_per_frame = 1
+			startup_collision_updates_per_frame = 1
+		WORLD_PROFILE_SMOOTH:
+			load_radius_chunks = 3
+			unload_radius_chunks = 5
+			collision_radius_chunks = 2
+			mesh_priority_radius_chunks = 2
+			center_change_mesh_cooldown_frames = 10
+			movement_mesh_updates_per_frame = 1
+			mesh_stage_target_usec = 220000
+			max_chunk_generations_per_frame = 4
+			max_chunk_mesh_updates_per_frame = 2
+			max_chunk_collision_updates_per_frame = 1
+			max_completed_chunk_integrations_per_frame = 4
+			max_cached_clean_chunks = 256
+			autosave_interval_seconds = 20.0
+			startup_mesh_warmup_frames = 0
+			startup_mesh_updates_per_frame = 2
+			startup_collision_updates_per_frame = 1
+		WORLD_PROFILE_SHOWCASE:
+			load_radius_chunks = 4
+			unload_radius_chunks = 6
+			collision_radius_chunks = 2
+			mesh_priority_radius_chunks = 3
+			center_change_mesh_cooldown_frames = 6
+			movement_mesh_updates_per_frame = 2
+			mesh_stage_target_usec = 320000
+			max_chunk_generations_per_frame = 6
+			max_chunk_mesh_updates_per_frame = 3
+			max_chunk_collision_updates_per_frame = 2
+			max_completed_chunk_integrations_per_frame = 6
+			max_cached_clean_chunks = 384
+			autosave_interval_seconds = 30.0
+			startup_mesh_warmup_frames = 0
+			startup_mesh_updates_per_frame = 2
+			startup_collision_updates_per_frame = 1
+		_:
+			pass
 
 func _configure_startup_profile() -> void:
 	_startup_profile_enabled = OS.get_environment("OURERA_STARTUP_PROFILE") == "1"
@@ -280,6 +383,7 @@ func _configure_startup_profile() -> void:
 	_startup_profile_report = {
 		"meta": {
 			"seed": seed,
+			"world_profile": world_profile,
 			"load_radius_chunks": load_radius_chunks,
 			"collision_radius_chunks": collision_radius_chunks,
 			"mesh_priority_radius_chunks": mesh_priority_radius_chunks,
@@ -559,7 +663,7 @@ func _tick_autosave(delta: float) -> void:
 		return
 
 	_autosave_elapsed = 0.0
-	save_now()
+	save_now("autosave")
 
 func _load_world_meta() -> void:
 	var payload: Dictionary = _storage.load_world_meta(seed)
@@ -577,8 +681,8 @@ func _load_world_meta() -> void:
 
 	_events.world_meta_loaded.emit(seed, _loaded_player_state)
 
-func _save_world_meta() -> void:
-	_storage.save_world_meta(seed, _collect_player_state(), _collect_entity_states())
+func _save_world_meta() -> bool:
+	return _storage.save_world_meta(seed, _collect_player_state(), _collect_entity_states())
 
 func _prepare_player_spawn(player: Node3D) -> void:
 	_set_player_simulation_enabled(player, false)
@@ -591,9 +695,11 @@ func _prime_startup_streaming(player: Node3D) -> void:
 		return
 	_sync_streaming_settings()
 	_streaming.begin_startup_warmup()
+	var previous_center := _center_chunk
 	_center_chunk = WorldConstants.world_to_chunk(
 		Vector3i(floori(player.global_position.x), 0, floori(player.global_position.z))
 	)
+	_emit_center_chunk_changed(previous_center, _center_chunk)
 	_streaming.on_center_chunk_changed(_center_chunk)
 
 func _finalize_player_spawn(player: Node3D) -> void:
@@ -779,7 +885,9 @@ func _update_center_chunk(player: Node3D) -> void:
 		Vector3i(floori(player.global_position.x), 0, floori(player.global_position.z))
 	)
 	if new_center != _center_chunk:
+		var previous_center := _center_chunk
 		_center_chunk = new_center
+		_emit_center_chunk_changed(previous_center, _center_chunk)
 		_streaming.on_center_chunk_changed(_center_chunk)
 
 func _on_world_meta_loaded(loaded_seed: int, player_state: Dictionary) -> void:
@@ -796,27 +904,47 @@ func _on_chunk_data_evicted(coord: Vector2i) -> void:
 
 func _on_chunk_loaded(coord: Vector2i, chunk) -> void:
 	chunk_loaded.emit(coord, chunk)
+	_emit_chunk_state(coord)
 
 func _on_chunk_unloaded(coord: Vector2i) -> void:
 	chunk_unloaded.emit(coord)
+	_emit_chunk_state(coord)
 
 func _on_chunk_changed(coord: Vector2i) -> void:
 	chunk_changed.emit(coord)
+	_emit_chunk_state(coord)
 
 func _on_chunk_saved(coord: Vector2i) -> void:
 	chunk_saved.emit(coord)
+	_emit_chunk_state(coord)
 
 func _on_world_saved() -> void:
 	world_saved.emit()
 
+func _emit_world_ready(player: Node3D) -> void:
+	if _world_ready_emitted or player == null:
+		return
+	_world_ready_emitted = true
+	world_ready.emit(player.global_position, _center_chunk)
+	_events.world_ready.emit(player.global_position, _center_chunk)
 
+func _emit_center_chunk_changed(previous: Vector2i, current: Vector2i) -> void:
+	if previous == current:
+		return
+	center_chunk_changed.emit(previous, current)
+	_events.center_chunk_changed.emit(previous, current)
 
+func _emit_chunk_state(coord: Vector2i) -> void:
+	if _streaming == null:
+		return
+	var state: Dictionary = _streaming.get_chunk_state(coord)
+	chunk_state_changed.emit(coord, state)
+	_events.chunk_state_changed.emit(coord, state)
 
+func _emit_world_save_started(reason: String) -> void:
+	world_save_started.emit(reason)
+	_events.world_save_started.emit(reason)
 
-
-
-
-
-
-
-
+func _emit_world_save_completed(success: bool, reason: String) -> void:
+	world_save_completed.emit(success, reason)
+	_events.world_save_completed.emit(success, reason)
