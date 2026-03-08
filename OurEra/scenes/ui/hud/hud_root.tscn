@@ -22,6 +22,63 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
+[node name="ModeLabel" type="Label" parent="."]
+layout_mode = 1
+offset_left = 24.0
+offset_top = 18.0
+offset_right = 170.0
+offset_bottom = 42.0
+
+[node name="ModeDetailLabel" type="Label" parent="."]
+layout_mode = 1
+offset_left = 24.0
+offset_top = 46.0
+offset_right = 360.0
+offset_bottom = 72.0
+
+[node name="SelectionDebugPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -232.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 180.0
+
+[node name="Margin" type="MarginContainer" parent="SelectionDebugPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="DebugLayout" type="VBoxContainer" parent="SelectionDebugPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="DebugIcon" type="TextureRect" parent="SelectionDebugPanel/Margin/DebugLayout"]
+custom_minimum_size = Vector2(42, 42)
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+texture_filter = 0
+
+[node name="DebugNameLabel" type="Label" parent="SelectionDebugPanel/Margin/DebugLayout"]
+layout_mode = 2
+text = "Selected Slot: Empty"
+
+[node name="DebugItemIdLabel" type="Label" parent="SelectionDebugPanel/Margin/DebugLayout"]
+layout_mode = 2
+text = "item_id: 0"
+
+[node name="DebugBlockIdLabel" type="Label" parent="SelectionDebugPanel/Margin/DebugLayout"]
+layout_mode = 2
+text = "block_id: 0"
+
+[node name="DebugCountLabel" type="Label" parent="SelectionDebugPanel/Margin/DebugLayout"]
+layout_mode = 2
+text = "count: 0"
+
 [node name="BottomBar" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchor_left = 0.5

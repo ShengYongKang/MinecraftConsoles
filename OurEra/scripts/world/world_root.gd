@@ -38,9 +38,11 @@ signal center_chunk_changed(previous: Vector2i, current: Vector2i)
 signal chunk_state_changed(coord: Vector2i, state: Dictionary)
 signal world_save_started(reason: String)
 signal world_save_completed(success: bool, reason: String)
+signal game_mode_changed(previous: StringName, current: StringName)
 signal world_saved()
 
 @export_enum("Custom","Debug","Smooth","Showcase") var world_profile := WORLD_PROFILE_SMOOTH
+@export_enum("survival","creative") var default_game_mode: String = "survival"
 @export var entity_system_path: NodePath
 @export var save_slot_name: String = "default"
 @export_file("*.png") var terrain_atlas_texture_path := "res://assets/textures/terrain.png"
@@ -99,6 +101,7 @@ var _runtime_profile_report: Dictionary = {}
 var _runtime_route_enabled := false
 var _runtime_route_name := ""
 var _runtime_route_driver
+var _current_game_mode: StringName = ContentDBScript.get_default_game_mode_id()
 
 func _ready() -> void:
 	_apply_world_profile()
@@ -162,10 +165,17 @@ func _process(delta: float) -> void:
 	var center_update_started_usec := Time.get_ticks_usec() if _startup_profile_enabled else 0
 	_update_center_chunk(player)
 	_record_profile_usec(startup_stages, "update_center_chunk_usec", center_update_started_usec)
+	_update_streaming_focus(player)
 	_streaming.process_frame(_center_chunk)
 	_tick_autosave(delta)
 	_record_startup_profile_frame(frame_started_usec, startup_stages)
 	_record_runtime_profile_frame(runtime_frame_started_usec)
+
+func _update_streaming_focus(player: Node3D) -> void:
+	if _streaming == null or player == null:
+		return
+	var forward := -player.global_transform.basis.z
+	_streaming.update_focus(player.global_position, forward)
 
 func get_block_global(pos: Vector3i) -> int:
 	if _streaming == null:
@@ -221,6 +231,53 @@ func get_save_slot() -> String:
 
 func get_world_profile_name() -> String:
 	return world_profile
+
+func get_game_mode_id() -> StringName:
+	return _current_game_mode
+
+func set_game_mode_id(mode_id: StringName) -> void:
+	var next_mode := ContentDBScript.normalize_game_mode_id(mode_id)
+	if _current_game_mode == next_mode:
+		return
+	var previous_mode := _current_game_mode
+	_current_game_mode = next_mode
+	game_mode_changed.emit(previous_mode, _current_game_mode)
+
+func get_game_mode_def() -> Dictionary:
+	return ContentDBScript.get_game_mode_def(_current_game_mode)
+
+func get_game_mode_display_data() -> Dictionary:
+	return ContentDBScript.get_game_mode_display_data(_current_game_mode)
+
+func get_game_mode_meta() -> Dictionary:
+	return ContentDBScript.get_game_mode_meta(_current_game_mode)
+
+func get_game_mode_setting(setting_key: StringName, default_value: Variant = null) -> Variant:
+	return ContentDBScript.get_game_mode_setting(_current_game_mode, setting_key, default_value)
+
+func allows_block_drops() -> bool:
+	return ContentDBScript.allows_block_drops(_current_game_mode)
+
+func does_placement_consume_inventory() -> bool:
+	return ContentDBScript.does_placement_consume_inventory(_current_game_mode)
+
+func requires_inventory_for_placement() -> bool:
+	return ContentDBScript.requires_inventory_for_placement(_current_game_mode)
+
+func allows_drop_pickup() -> bool:
+	return ContentDBScript.allows_drop_pickup(_current_game_mode)
+
+func is_instant_break_enabled() -> bool:
+	return ContentDBScript.is_instant_break_enabled(_current_game_mode)
+
+func is_health_enabled() -> bool:
+	return ContentDBScript.is_health_enabled(_current_game_mode)
+
+func is_hunger_enabled() -> bool:
+	return ContentDBScript.is_hunger_enabled(_current_game_mode)
+
+func is_damage_enabled() -> bool:
+	return ContentDBScript.is_damage_enabled(_current_game_mode)
 
 func is_world_ready() -> bool:
 	return _startup_streaming_initialized and _world_ready_emitted
@@ -316,6 +373,7 @@ static func world_to_local(pos: Vector3i) -> Vector3i:
 	return WorldConstants.world_to_local(pos)
 
 func _apply_world_profile() -> void:
+	_current_game_mode = ContentDBScript.normalize_game_mode_id(StringName(default_game_mode))
 	match world_profile:
 		WORLD_PROFILE_DEBUG:
 			load_radius_chunks = 1
@@ -969,3 +1027,4 @@ func _emit_world_save_started(reason: String) -> void:
 func _emit_world_save_completed(success: bool, reason: String) -> void:
 	world_save_completed.emit(success, reason)
 	_events.world_save_completed.emit(success, reason)
+

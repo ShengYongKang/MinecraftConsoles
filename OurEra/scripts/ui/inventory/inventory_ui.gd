@@ -9,6 +9,7 @@ signal hotbar_slot_requested(slot_index: int)
 const SLOT_SIZE := Vector2(58, 62)
 
 @onready var panel: PanelContainer = $Panel
+@onready var title_label: Label = $Panel/Margin/Layout/HeaderRow/TitleLabel
 @onready var subtitle_label: Label = $Panel/Margin/Layout/SubtitleLabel
 @onready var selection_label: Label = $Panel/Margin/Layout/SelectionLabel
 @onready var quick_slots: HBoxContainer = $Panel/Margin/Layout/QuickSlots
@@ -27,9 +28,12 @@ func apply_ui_state(state: Dictionary) -> void:
 	visible = bool(state.get("inventory_open", false))
 	var controls := Dictionary(state.get("controls", {}))
 	var selected_slot := Dictionary(state.get("selected_slot", {}))
+	var game_mode := Dictionary(state.get("game_mode", {}))
+	var summary := Dictionary(state.get("inventory_summary", {}))
 
-	subtitle_label.text = "Connected UI shell. Quick slots sync with player selection; backpack cells are placeholder content data."
-	selection_label.text = _format_selection_label(selected_slot)
+	title_label.text = "%s Backpack" % String(game_mode.get("short_name", "Survival"))
+	subtitle_label.text = String(game_mode.get("inventory_detail", ""))
+	selection_label.text = _format_selection_label(selected_slot, summary)
 	hint_label.text = String(controls.get("inventory_hint", ""))
 
 	_set_quick_slots(Array(state.get("hotbar_slots", [])), int(state.get("selected_hotbar_index", 0)))
@@ -130,7 +134,7 @@ func _update_slot_widget(widget: Dictionary, slot: Dictionary, is_selected: bool
 	if is_empty:
 		icon_rect.texture = null
 		count_label.text = ""
-		frame.tooltip_text = "Prototype empty slot"
+		frame.tooltip_text = "Empty slot"
 	else:
 		icon_rect.texture = UIIconFactoryScript.create_icon_from_tile(slot.get("icon_tile", Vector2i.ZERO))
 		count_label.text = str(count)
@@ -157,12 +161,18 @@ func _make_slot_style(is_selected: bool, is_empty: bool, emphasize_hotbar: bool)
 	style.corner_radius_bottom_right = 10
 	return style
 
-func _format_selection_label(selected_slot: Dictionary) -> String:
+func _format_selection_label(selected_slot: Dictionary, summary: Dictionary) -> String:
+	var used_slots := int(summary.get("used_slots", 0))
+	var total_slots := int(summary.get("total_slots", 0))
+	var total_items := int(summary.get("total_items", 0))
 	if bool(selected_slot.get("is_empty", true)):
-		return "Current selection: Empty prototype slot"
-	return "Current selection: %s x%d" % [
+		return "Selection empty | Slots used: %d/%d | Items stored: %d" % [used_slots, total_slots, total_items]
+	return "Selected: %s x%d | Slots used: %d/%d | Items stored: %d" % [
 		String(selected_slot.get("display_name", "Item")),
 		int(selected_slot.get("count", 0)),
+		used_slots,
+		total_slots,
+		total_items,
 	]
 
 func _apply_palette() -> void:
@@ -178,7 +188,7 @@ func _apply_palette() -> void:
 	panel_style.shadow_color = Color(0.0, 0.0, 0.0, 0.28)
 	panel.add_theme_stylebox_override("panel", panel_style)
 
-	for label in [subtitle_label, selection_label, hint_label]:
+	for label in [title_label, subtitle_label, selection_label, hint_label]:
 		label.add_theme_color_override("font_color", Color(0.84, 0.88, 0.93))
 
 	close_button.add_theme_font_size_override("font_size", 14)

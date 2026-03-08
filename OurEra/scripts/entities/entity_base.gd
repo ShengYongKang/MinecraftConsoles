@@ -150,6 +150,41 @@ func get_world_block(pos: Vector3i) -> int:
 		return BlockDefs.AIR
 	return world.get_block_global(pos)
 
+func get_world_game_mode_id() -> StringName:
+	if world == null or not world.has_method("get_game_mode_id"):
+		return ContentDB.get_default_game_mode_id()
+	return world.get_game_mode_id()
+
+func get_world_game_mode_setting(setting_key: StringName, default_value: Variant = null) -> Variant:
+	if world == null or not world.has_method("get_game_mode_setting"):
+		return default_value
+	return world.get_game_mode_setting(setting_key, default_value)
+
+func world_allows_block_drops() -> bool:
+	if world == null or not world.has_method("allows_block_drops"):
+		return ContentDB.allows_block_drops(get_world_game_mode_id())
+	return world.allows_block_drops()
+
+func world_does_placement_consume_inventory() -> bool:
+	if world == null or not world.has_method("does_placement_consume_inventory"):
+		return ContentDB.does_placement_consume_inventory(get_world_game_mode_id())
+	return world.does_placement_consume_inventory()
+
+func world_requires_inventory_for_placement() -> bool:
+	if world == null or not world.has_method("requires_inventory_for_placement"):
+		return ContentDB.requires_inventory_for_placement(get_world_game_mode_id())
+	return world.requires_inventory_for_placement()
+
+func world_allows_drop_pickup() -> bool:
+	if world == null or not world.has_method("allows_drop_pickup"):
+		return ContentDB.allows_drop_pickup(get_world_game_mode_id())
+	return world.allows_drop_pickup()
+
+func world_is_instant_break_enabled() -> bool:
+	if world == null or not world.has_method("is_instant_break_enabled"):
+		return ContentDB.is_instant_break_enabled(get_world_game_mode_id())
+	return world.is_instant_break_enabled()
+
 func set_world_block(pos: Vector3i, block_id: int) -> void:
 	if world == null or not world.has_method("set_block_global"):
 		return

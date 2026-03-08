@@ -54,6 +54,10 @@ var _center_change_mesh_cooldown_left := 0
 var _recent_mesh_usec_per_chunk := 0.0
 var _last_profile_frame: Dictionary = {}
 var _last_immediate_profile: Dictionary = {}
+var _focus_position := Vector3.ZERO
+var _focus_forward := Vector3.ZERO
+var _focus_valid := false
+
 
 func setup(
 	p_world: Node3D,
@@ -65,6 +69,16 @@ func setup(
 	storage = p_storage
 	generator = p_generator
 	events = p_events
+
+func update_focus(player_position: Vector3, view_forward: Vector3) -> void:
+	_focus_position = player_position
+	var horizontal_forward := Vector3(view_forward.x, 0.0, view_forward.z)
+	if horizontal_forward.length_squared() <= 0.000001:
+		_focus_forward = Vector3.ZERO
+		_focus_valid = false
+		return
+	_focus_forward = horizontal_forward.normalized()
+	_focus_valid = true
 
 func apply_settings(settings: Dictionary) -> void:
 	load_radius_chunks = int(settings.get("load_radius_chunks", load_radius_chunks))
@@ -317,7 +331,15 @@ func _refresh_pending_generation(center: Vector2i) -> void:
 		next_queue.append(coord)
 
 	next_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return WorldConstants.chunk_distance_sq(center, a) < WorldConstants.chunk_distance_sq(center, b)
+		var a_bucket := _focus_bucket(center, a)
+		var b_bucket := _focus_bucket(center, b)
+		if a_bucket != b_bucket:
+			return a_bucket < b_bucket
+		var a_distance := WorldConstants.chunk_distance_sq(center, a)
+		var b_distance := WorldConstants.chunk_distance_sq(center, b)
+		if a_distance != b_distance:
+			return a_distance < b_distance
+		return _focus_alignment_score(a) > _focus_alignment_score(b)
 	)
 
 	_pending_generation = next_queue
@@ -555,11 +577,19 @@ func _refresh_pending_mesh(center: Vector2i) -> void:
 		var b_bucket := _mesh_distance_bucket(center, b)
 		if a_bucket != b_bucket:
 			return a_bucket < b_bucket
+		var a_focus_bucket := _focus_bucket(center, a)
+		var b_focus_bucket := _focus_bucket(center, b)
+		if a_focus_bucket != b_focus_bucket:
+			return a_focus_bucket < b_focus_bucket
 		var a_priority := int(next_priority.get(a, MESH_PRIORITY_PRIMARY))
 		var b_priority := int(next_priority.get(b, MESH_PRIORITY_PRIMARY))
 		if a_priority != b_priority:
 			return a_priority < b_priority
-		return WorldConstants.chunk_distance_sq(center, a) < WorldConstants.chunk_distance_sq(center, b)
+		var a_distance := WorldConstants.chunk_distance_sq(center, a)
+		var b_distance := WorldConstants.chunk_distance_sq(center, b)
+		if a_distance != b_distance:
+			return a_distance < b_distance
+		return _focus_alignment_score(a) > _focus_alignment_score(b)
 	)
 
 	_pending_mesh = next_queue
@@ -745,6 +775,32 @@ func _queue_neighbor_mesh(source_coord: Vector2i, neighbor_coord: Vector2i, cent
 	if WorldConstants.chunk_chebyshev_distance(center, neighbor_coord) > load_radius_chunks:
 		return
 	_queue_chunk_mesh(neighbor_coord, _neighbor_mesh_priority(center, neighbor_coord))
+
+func _focus_bucket(center: Vector2i, coord: Vector2i) -> int:
+	if not _focus_valid:
+		return 1
+	if coord == center:
+		return 0
+	var score := _focus_alignment_score(coord)
+	if score >= 0.35:
+		return 0
+	if score >= -0.15:
+		return 1
+	return 2
+
+func _focus_alignment_score(coord: Vector2i) -> float:
+	if not _focus_valid:
+		return 0.0
+	var chunk_center := Vector3(
+		float(coord.x * WorldConstants.CHUNK_WIDTH + WorldConstants.CHUNK_WIDTH / 2),
+		_focus_position.y,
+		float(coord.y * WorldConstants.CHUNK_WIDTH + WorldConstants.CHUNK_WIDTH / 2)
+	)
+	var to_chunk := chunk_center - _focus_position
+	to_chunk.y = 0.0
+	if to_chunk.length_squared() <= 0.000001:
+		return 1.0
+	return _focus_forward.dot(to_chunk.normalized())
 
 func _load_or_generate_chunk_data(coord: Vector2i) -> PackedInt32Array:
 	var saved_data: PackedInt32Array = storage.load_chunk_data(coord)

@@ -2,6 +2,7 @@ class_name ContentDB
 extends RefCounted
 
 const ContentBlockDefsScript = preload("res://scripts/content/block_defs.gd")
+const GameModeDefsScript = preload("res://scripts/content/game_mode_defs.gd")
 const ItemDefsScript = preload("res://scripts/content/item_defs.gd")
 const RecipeDefsScript = preload("res://scripts/content/recipe_defs.gd")
 const LootTablesScript = preload("res://scripts/content/loot_tables.gd")
@@ -15,6 +16,9 @@ const COBBLE := 4
 
 const ATLAS_SIZE := 16
 const DEFAULT_SELECTED_BLOCK_ID := COBBLE
+
+const GAME_MODE_CREATIVE := GameModeDefsScript.CREATIVE
+const GAME_MODE_SURVIVAL := GameModeDefsScript.SURVIVAL
 
 static func has_block(block_id: int) -> bool:
 	return ContentBlockDefsScript.has_block(block_id)
@@ -86,6 +90,54 @@ static func get_item_meta(item_id: int) -> Dictionary:
 
 static func get_item_icon_tile(item_id: int) -> Vector2i:
 	return ItemDefsScript.get_icon_tile(item_id)
+
+static func has_game_mode(mode_id: StringName) -> bool:
+	return GameModeDefsScript.has_mode(mode_id)
+
+static func get_game_mode_ids() -> Array[StringName]:
+	return GameModeDefsScript.get_mode_ids()
+
+static func get_default_game_mode_id() -> StringName:
+	return GameModeDefsScript.get_default_mode_id()
+
+static func normalize_game_mode_id(mode_id: StringName) -> StringName:
+	return GameModeDefsScript.normalize_mode_id(mode_id)
+
+static func get_game_mode_def(mode_id: StringName) -> Dictionary:
+	return GameModeDefsScript.get_mode_def(mode_id)
+
+static func get_game_mode_display_data(mode_id: StringName) -> Dictionary:
+	return GameModeDefsScript.get_display_data(mode_id)
+
+static func get_game_mode_meta(mode_id: StringName) -> Dictionary:
+	return GameModeDefsScript.get_mode_meta(mode_id)
+
+static func get_game_mode_setting(mode_id: StringName, setting_key: StringName, default_value: Variant = null) -> Variant:
+	return GameModeDefsScript.get_setting(mode_id, setting_key, default_value)
+
+static func allows_block_drops(mode_id: StringName) -> bool:
+	return GameModeDefsScript.are_block_drops_enabled(mode_id)
+
+static func does_placement_consume_inventory(mode_id: StringName) -> bool:
+	return GameModeDefsScript.does_placement_consume_inventory(mode_id)
+
+static func requires_inventory_for_placement(mode_id: StringName) -> bool:
+	return GameModeDefsScript.does_placement_require_inventory(mode_id)
+
+static func allows_drop_pickup(mode_id: StringName) -> bool:
+	return GameModeDefsScript.is_drop_pickup_enabled(mode_id)
+
+static func is_instant_break_enabled(mode_id: StringName) -> bool:
+	return GameModeDefsScript.is_instant_break_enabled(mode_id)
+
+static func is_health_enabled(mode_id: StringName) -> bool:
+	return GameModeDefsScript.is_health_enabled(mode_id)
+
+static func is_hunger_enabled(mode_id: StringName) -> bool:
+	return GameModeDefsScript.is_hunger_enabled(mode_id)
+
+static func is_damage_enabled(mode_id: StringName) -> bool:
+	return GameModeDefsScript.is_damage_enabled(mode_id)
 
 static func get_recipe(recipe_id: StringName) -> Dictionary:
 	return RecipeDefsScript.get_recipe(recipe_id)

@@ -1,10 +1,10 @@
 class_name GameUIRoot
 extends CanvasLayer
 
-@onready var bridge: Node = $Bridge
-@onready var hud: Control = $Root/HUD
-@onready var inventory_ui: Control = $Root/InventoryUI
-@onready var pause_menu_ui: Control = $Root/PauseMenuUI
+@onready var bridge = $Bridge
+@onready var hud = $Root/HUD
+@onready var inventory_ui = $Root/InventoryUI
+@onready var pause_menu_ui = $Root/PauseMenuUI
 
 func _ready() -> void:
 	hud.hotbar_slot_requested.connect(bridge.request_select_hotbar_index)
@@ -23,4 +23,3 @@ func _apply_ui_state(state: Dictionary) -> void:
 	hud.apply_ui_state(state)
 	inventory_ui.apply_ui_state(state)
 	pause_menu_ui.apply_ui_state(state)
-
