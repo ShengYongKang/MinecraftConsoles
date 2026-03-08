@@ -42,6 +42,8 @@ var _chunks: Dictionary = {}
 var _pending_generation: Array[Vector2i] = []
 var _pending_generation_set: Dictionary = {}
 var _generation_active_set: Dictionary = {}
+var _pending_integration: Array[Vector2i] = []
+var _pending_integration_set: Dictionary = {}
 
 var _pending_mesh: Array[Vector2i] = []
 var _pending_mesh_set: Dictionary = {}
@@ -215,8 +217,9 @@ func force_streaming_update(center: Vector2i) -> void:
 	var frame_started_usec := Time.get_ticks_usec() if collect_runtime_profile else 0
 	_ensure_chunk_immediate(center, true, frame_profile)
 	on_center_chunk_changed(center)
-	_integrate_completed_generation_budget(center, frame_profile)
 	_dispatch_generation_budget(center, frame_profile)
+	_drain_completed_generation(center, frame_profile)
+	_process_integration_budget(center, frame_profile)
 	_sync_collision_targets(center, _allow_collision_updates(), frame_profile)
 	_process_mesh_budget(center, _allow_collision_updates(), frame_profile)
 	_sync_collision_targets(center, _allow_collision_updates(), frame_profile)
@@ -233,6 +236,7 @@ func on_center_chunk_changed(center: Vector2i) -> void:
 	_center_change_mesh_cooldown_left = center_change_mesh_cooldown_frames
 	_schedule_chunks_around_center(center)
 	_refresh_pending_generation(center)
+	_refresh_pending_integration(center)
 	_refresh_pending_mesh(center)
 	_unload_far_chunks(center)
 	_sync_collision_targets(center, _allow_collision_updates())
@@ -241,8 +245,9 @@ func process_frame(center: Vector2i) -> void:
 	var allow_collision := _allow_collision_updates()
 	var frame_profile := _new_profile_frame("process", center) if collect_runtime_profile else {}
 	var frame_started_usec := Time.get_ticks_usec() if collect_runtime_profile else 0
-	_integrate_completed_generation_budget(center, frame_profile)
 	_dispatch_generation_budget(center, frame_profile)
+	_drain_completed_generation(center, frame_profile)
+	_process_integration_budget(center, frame_profile)
 	_sync_collision_targets(center, allow_collision, frame_profile)
 	_process_mesh_budget(center, allow_collision, frame_profile)
 	_sync_collision_targets(center, allow_collision, frame_profile)
@@ -366,12 +371,8 @@ func _dispatch_generation_budget(center: Vector2i, profile: Dictionary = {}) -> 
 			continue
 
 		if _chunk_blocks.has(coord):
-			var instantiate_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
-			_instantiate_chunk(coord)
-			_add_profile_usec(profile, "dispatch_instantiate_usec", Time.get_ticks_usec() - instantiate_started_usec)
-			_add_profile_count(profile, "dispatch_chunk_count", 1)
-			_queue_chunk_mesh(coord, MESH_PRIORITY_PRIMARY)
-			_queue_neighbor_meshes(coord, center)
+			_queue_chunk_integration(coord)
+			_add_profile_count(profile, "dispatch_deferred_chunk_count", 1)
 			dispatched += 1
 			continue
 
@@ -380,12 +381,8 @@ func _dispatch_generation_budget(center: Vector2i, profile: Dictionary = {}) -> 
 		_add_profile_usec(profile, "dispatch_sync_load_usec", Time.get_ticks_usec() - sync_load_started_usec)
 		if saved_data.size() == WorldConstants.CHUNK_VOLUME:
 			_register_chunk_data(coord, saved_data, false)
-			var saved_instantiate_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
-			_instantiate_chunk(coord)
-			_add_profile_usec(profile, "dispatch_instantiate_usec", Time.get_ticks_usec() - saved_instantiate_started_usec)
-			_add_profile_count(profile, "dispatch_chunk_count", 1)
-			_queue_chunk_mesh(coord, MESH_PRIORITY_PRIMARY)
-			_queue_neighbor_meshes(coord, center)
+			_queue_chunk_integration(coord)
+			_add_profile_count(profile, "dispatch_deferred_chunk_count", 1)
 			dispatched += 1
 			continue
 
@@ -396,21 +393,41 @@ func _dispatch_generation_budget(center: Vector2i, profile: Dictionary = {}) -> 
 
 	_add_profile_usec(profile, "dispatch_usec", Time.get_ticks_usec() - stage_started_usec)
 
-func _integrate_completed_generation_budget(center: Vector2i, profile: Dictionary = {}) -> void:
+func _drain_completed_generation(center: Vector2i, profile: Dictionary = {}) -> void:
 	var stage_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
-	for result in generator.consume_completed(max_completed_chunk_integrations_per_frame):
+	var drain_budget := maxi(max_completed_chunk_integrations_per_frame, max_chunk_generations_per_frame)
+	for result in generator.consume_completed(drain_budget):
 		var coord: Vector2i = result["coord"]
 		var data: PackedInt32Array = result["data"]
 		_generation_active_set.erase(coord)
-		_add_profile_count(profile, "integrated_chunk_count", 1)
+		_add_profile_count(profile, "generation_result_count", 1)
 
 		if not _chunk_blocks.has(coord):
 			_register_chunk_data(coord, data, false)
 
 		if WorldConstants.chunk_chebyshev_distance(center, coord) <= load_radius_chunks:
-			var instantiate_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
-			_instantiate_chunk(coord)
-			_add_profile_usec(profile, "integrate_instantiate_usec", Time.get_ticks_usec() - instantiate_started_usec)
+			_queue_chunk_integration(coord)
+
+	_refresh_pending_integration(center)
+	_add_profile_usec(profile, "generation_result_drain_usec", Time.get_ticks_usec() - stage_started_usec)
+
+func _process_integration_budget(center: Vector2i, profile: Dictionary = {}) -> void:
+	var stage_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
+	_refresh_pending_integration(center)
+	var count: int = mini(max_completed_chunk_integrations_per_frame, _pending_integration.size())
+	for _i in range(count):
+		var coord: Vector2i = _pending_integration.pop_front()
+		_pending_integration_set.erase(coord)
+		if not _chunk_blocks.has(coord):
+			continue
+		if WorldConstants.chunk_chebyshev_distance(center, coord) > load_radius_chunks:
+			continue
+
+		var instantiate_started_usec := Time.get_ticks_usec() if not profile.is_empty() else 0
+		_instantiate_chunk(coord)
+		_add_profile_usec(profile, "integrate_instantiate_usec", Time.get_ticks_usec() - instantiate_started_usec)
+		if _chunks.has(coord):
+			_add_profile_count(profile, "integrated_chunk_count", 1)
 			_queue_chunk_mesh(coord, MESH_PRIORITY_PRIMARY)
 			_queue_neighbor_meshes(coord, center)
 
@@ -559,6 +576,49 @@ func _queue_collision_sync(coord: Vector2i, prioritize: bool = false) -> void:
 	else:
 		_pending_collision.append(coord)
 	_pending_collision_set[coord] = true
+
+func _queue_chunk_integration(coord: Vector2i) -> void:
+	if _chunks.has(coord):
+		return
+	if not _chunk_blocks.has(coord):
+		return
+	if _pending_integration_set.has(coord):
+		return
+	_pending_integration.append(coord)
+	_pending_integration_set[coord] = true
+
+func _refresh_pending_integration(center: Vector2i) -> void:
+	var next_queue: Array[Vector2i] = []
+	for coord_any in _pending_integration_set.keys():
+		var coord: Vector2i = coord_any
+		if _chunks.has(coord):
+			continue
+		if not _chunk_blocks.has(coord):
+			continue
+		if WorldConstants.chunk_chebyshev_distance(center, coord) > unload_radius_chunks:
+			continue
+		next_queue.append(coord)
+
+	next_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var a_bucket := _mesh_distance_bucket(center, a)
+		var b_bucket := _mesh_distance_bucket(center, b)
+		if a_bucket != b_bucket:
+			return a_bucket < b_bucket
+		var a_focus_bucket := _focus_bucket(center, a)
+		var b_focus_bucket := _focus_bucket(center, b)
+		if a_focus_bucket != b_focus_bucket:
+			return a_focus_bucket < b_focus_bucket
+		var a_distance := WorldConstants.chunk_distance_sq(center, a)
+		var b_distance := WorldConstants.chunk_distance_sq(center, b)
+		if a_distance != b_distance:
+			return a_distance < b_distance
+		return _focus_alignment_score(a) > _focus_alignment_score(b)
+	)
+
+	_pending_integration = next_queue
+	_pending_integration_set.clear()
+	for coord in _pending_integration:
+		_pending_integration_set[coord] = true
 
 func _refresh_pending_mesh(center: Vector2i) -> void:
 	var next_queue: Array[Vector2i] = []
@@ -901,7 +961,3 @@ func _get_chunk_render_state(coord: Vector2i) -> int:
 
 func _set_chunk_render_state(coord: Vector2i, state: int) -> void:
 	_chunk_render_state[coord] = state
-
-
-
-
